@@ -468,6 +468,32 @@ function formatDateShort(date) {
     return `${tage[d.getDay()]} ${dd}.${mm}.`;
 }
 
+function isSameDay(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function startOfWeek(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+function endOfWeek(date) {
+    const d = startOfWeek(date);
+    d.setDate(d.getDate() + 4);
+    return d;
+}
+
+function getISOWeek(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
 function parseExcelDatum(value) {
     if (!value) return null;
     if (value instanceof Date) return value;
@@ -770,8 +796,11 @@ function renderBoard() {
     if (produktionOrders.length === 0) {
         document.getElementById('machineGrid').innerHTML = '';
         document.getElementById('kanbanBoard').innerHTML = '<p style="color: #64748b;">Noch keine Aufträge geplant. Lade im Auftragsimport eine Aufträge-Excel hoch.</p>';
+        renderGantt([]);
         return;
     }
+
+    renderGantt(produktionOrders);
 
     const machineGrid = document.getElementById('machineGrid');
     machineGrid.innerHTML = '';
@@ -866,6 +895,120 @@ function renderBoard() {
 
     const statusEl = document.getElementById('boardSyncStatus');
     if (statusEl) statusEl.textContent = `Zuletzt aktualisiert: ${new Date().toLocaleTimeString('de-DE')}`;
+}
+
+// Zeitplan: KW + Mo-Fr fixiert links (sticky), Maschinen als Spalten, Aufträge als
+// Balken, die genau so viele Tageszeilen belegen, wie ihre Produktion dauert.
+function computeTimelineTage(orders) {
+    let minDate = startOfWeek(nextWeekday(new Date()));
+    let maxDate = endOfWeek(addWorkdays(minDate, 9));
+
+    orders.forEach(o => {
+        if (!o.startDatum || !o.endDatum) return;
+        const s = startOfWeek(new Date(o.startDatum));
+        const e = endOfWeek(new Date(o.endDatum));
+        if (s < minDate) minDate = s;
+        if (e > maxDate) maxDate = e;
+    });
+
+    const tage = [];
+    const cur = new Date(minDate);
+    while (cur <= maxDate) {
+        if (isWeekday(cur)) tage.push(new Date(cur));
+        cur.setDate(cur.getDate() + 1);
+    }
+    return tage;
+}
+
+function groupByWeek(tage) {
+    const gruppen = [];
+    let aktuell = null;
+    tage.forEach(t => {
+        const key = `${t.getFullYear()}-${getISOWeek(t)}`;
+        if (!aktuell || aktuell.key !== key) {
+            aktuell = { key, woche: getISOWeek(t), tage: [] };
+            gruppen.push(aktuell);
+        }
+        aktuell.tage.push(t);
+    });
+    return gruppen;
+}
+
+function renderGantt(orders) {
+    const grid = document.getElementById('ganttGrid');
+    if (!grid) return;
+
+    const mitTerminen = orders.filter(o => o.startDatum && o.endDatum);
+    const tage = computeTimelineTage(mitTerminen);
+    const wochen = groupByWeek(tage);
+
+    grid.innerHTML = '';
+    grid.style.gridTemplateColumns = `40px 46px repeat(${MASCHINEN.length}, 92px)`;
+    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 30px)`;
+
+    const ecke = document.createElement('div');
+    ecke.className = 'gantt-corner';
+    ecke.style.gridColumn = '1 / span 2';
+    ecke.style.gridRow = '1 / span 1';
+    grid.appendChild(ecke);
+
+    MASCHINEN.forEach((m, mi) => {
+        const header = document.createElement('div');
+        header.className = 'gantt-machine-header';
+        header.textContent = m.name;
+        header.style.gridColumn = `${mi + 3} / span 1`;
+        header.style.gridRow = '1 / span 1';
+        grid.appendChild(header);
+    });
+
+    let zeile = 2;
+    wochen.forEach(w => {
+        const kwLabel = document.createElement('div');
+        kwLabel.className = 'gantt-week-label';
+        kwLabel.textContent = `KW ${w.woche}`;
+        kwLabel.style.gridColumn = '1 / span 1';
+        kwLabel.style.gridRow = `${zeile} / span ${w.tage.length}`;
+        grid.appendChild(kwLabel);
+        zeile += w.tage.length;
+    });
+
+    const wochentage = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+    tage.forEach((t, i) => {
+        const dayLabel = document.createElement('div');
+        dayLabel.className = 'gantt-day-label';
+        dayLabel.textContent = `${wochentage[t.getDay()]} ${String(t.getDate()).padStart(2, '0')}.${String(t.getMonth() + 1).padStart(2, '0')}.`;
+        dayLabel.style.gridColumn = '2 / span 1';
+        dayLabel.style.gridRow = `${i + 2} / span 1`;
+        grid.appendChild(dayLabel);
+
+        MASCHINEN.forEach((m, mi) => {
+            const cell = document.createElement('div');
+            cell.className = 'gantt-cell';
+            cell.style.gridColumn = `${mi + 3} / span 1`;
+            cell.style.gridRow = `${i + 2} / span 1`;
+            grid.appendChild(cell);
+        });
+    });
+
+    mitTerminen.forEach(o => {
+        [o.maschineId, o.maschineId2].filter(Boolean).forEach(maschineId => {
+            const mi = MASCHINEN.findIndex(m => m.id === maschineId);
+            if (mi === -1) return;
+            const start = new Date(o.startDatum);
+            const ende = new Date(o.endDatum);
+            const startIdx = tage.findIndex(t => isSameDay(t, start));
+            const endIdx = tage.findIndex(t => isSameDay(t, ende));
+            if (startIdx === -1 || endIdx === -1) return;
+
+            const bar = document.createElement('div');
+            bar.className = `gantt-bar card-${o.status}`;
+            bar.textContent = `${o.artikelnummer} · ${o.auftragsnummer}`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}`;
+            bar.style.gridColumn = `${mi + 3} / span 1`;
+            bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
+            grid.appendChild(bar);
+        });
+    });
 }
 
 function renderEndbearbeitung() {
