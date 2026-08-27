@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formteile Fritsch - Auftragsplaner</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto; background: linear-gradient(to bottom right, #f8fafc, #f1f5f9); min-height: 100vh; color: #0f172a; }
+        
+        .hidden { display: none !important; }
+        
+        .auth-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+        .auth-box { background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); padding: 48px; max-width: 400px; width: 100%; }
+        .auth-box h1 { font-size: 28px; margin-bottom: 8px; color: #0f172a; font-weight: bold; }
+        .auth-box p { color: #64748b; margin-bottom: 32px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
+        .form-group input:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1); }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 0.2s; }
+        .btn-primary { background-color: #16a34a; color: white; width: 100%; }
+        .btn-primary:hover { background-color: #15803d; }
+        .error { background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; margin-bottom: 16px; color: #991b1b; font-size: 13px; }
+        .auth-toggle { text-align: center; margin-top: 20px; font-size: 14px; color: #64748b; }
+        .auth-toggle a { color: #16a34a; cursor: pointer; font-weight: 600; text-decoration: underline; }
+        
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 280px; background: #1e293b; color: white; padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 18px; margin-bottom: 24px; font-weight: bold; }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 8px; }
+        .sidebar-item { padding: 12px 16px; border-radius: 6px; cursor: pointer; transition: background-color 0.2s; font-size: 14px; }
+        .sidebar-item:hover { background-color: rgba(255,255,255,0.1); }
+        .sidebar-item.active { background-color: #16a34a; }
+        .sidebar-logout { margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); }
+        
+        .main { flex: 1; overflow-y: auto; padding: 32px; }
+        .header { margin-bottom: 32px; }
+        .header h2 { font-size: 32px; font-weight: bold; margin-bottom: 8px; }
+        .header p { color: #64748b; }
+        
+        .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 24px; }
+        .card h3 { font-size: 18px; font-weight: bold; margin-bottom: 16px; }
+        
+        .upload-area { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 160px; border: 2px dashed #cbd5e1; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; }
+        .upload-area:hover { background-color: #f8fafc; }
+        .upload-icon { font-size: 40px; margin-bottom: 12px; }
+        .upload-text { font-size: 14px; color: #475569; font-weight: 600; }
+        
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        thead { background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0; }
+        th { padding: 12px; text-align: left; font-weight: 600; color: #0f172a; }
+        td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+        
+        .draggable-order { cursor: move; background: #f8fafc; border-left: 4px solid #16a34a; }
+        .draggable-order.dragging { opacity: 0.5; }
+        .draggable-order:hover { background: #f1f5f9; }
+        
+        .machine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+        .machine-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; }
+        .machine-name { font-size: 12px; color: #64748b; margin-bottom: 8px; font-weight: 600; }
+        .machine-percent { font-size: 24px; font-weight: bold; margin-bottom: 8px; }
+        .progress-bar { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #16a34a; }
+        .progress-fill.medium { background: #eab308; }
+        .progress-fill.high { background: #ef4444; }
+
+        .kanban-board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+        .kanban-column { flex: 0 0 220px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; min-height: 120px; }
+        .kanban-column.drag-over { background: #ecfdf5; border-color: #16a34a; }
+        .kanban-column-header { font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 4px; }
+        .kanban-column-sub { font-size: 11px; color: #94a3b8; margin-bottom: 10px; }
+        .kanban-card { position: relative; background: white; border: 1px solid #e2e8f0; border-left: 4px solid #16a34a; border-radius: 6px; padding: 10px 28px 10px 10px; margin-bottom: 8px; font-size: 12px; user-select: text; }
+        .drag-handle { position: absolute; top: 6px; right: 6px; cursor: grab; color: #cbd5e1; font-size: 14px; line-height: 1; padding: 2px 4px; user-select: none; }
+        .drag-handle:hover { color: #64748b; }
+        .drag-handle:active { cursor: grabbing; }
+        .kanban-card.dragging { opacity: 0.4; }
+        .kanban-card.card-ueberlastet { border-left-color: #ef4444; }
+        .kanban-card.card-ausstehend { border-left-color: #94a3b8; }
+        .kanban-card-title { font-weight: 600; margin-bottom: 4px; }
+        .kanban-card-desc { color: #475569; margin-bottom: 4px; }
+        .kanban-card-schedule { color: #15803d; font-weight: 600; margin-bottom: 4px; }
+        .kanban-card-parallel { color: #7c3aed; margin-bottom: 4px; }
+        .kanban-card-meta { color: #64748b; }
+        .kanban-card-komponenten { margin: 6px 0; padding: 6px; background: #fef2f2; border-radius: 4px; }
+        .kanban-card-komponenten.komplett { background: #f0fdf4; }
+        .komponente-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0; }
+        .komponente-zeile span { flex: 1; min-width: 0; }
+        .komp-date { font-size: 11px; border: 1px solid #e2e8f0; border-radius: 4px; padding: 1px 2px; width: 108px; cursor: pointer; }
+        .kanban-card-bestellung { color: #0369a1; margin-bottom: 4px; }
+        .kanban-card-actions { display: flex; gap: 6px; margin-top: 8px; }
+        .kanban-card-actions button { flex: 1; font-size: 11px; padding: 5px 6px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; }
+        .kanban-card-actions button:hover { background: #f1f5f9; }
+        .kanban-card-actions button.primary { background: #16a34a; color: white; border-color: #16a34a; }
+        .kanban-card-actions button.primary:hover { background: #15803d; }
+        .kanban-card-actions button.danger { color: #b91c1c; border-color: #fecaca; }
+        .kanban-card-actions button.danger:hover { background: #fef2f2; }
+        .kanban-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+        .warenausgang-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+
+        input[type="file"] { display: none; }
+        
+        @media (max-width: 768px) {
+            .app-container { flex-direction: column; }
+            .sidebar { width: 100%; }
+            .main { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="authScreen" class="auth-container">
+    <div class="auth-box">
+        <h1>Formteile Fritsch</h1>
+        <p>Auftragsplaner Online</p>
+        
+        <div id="loginForm">
+            <div id="authError" class="error hidden"></div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="loginEmail" placeholder="deine@email.de">
+            </div>
+            <div class="form-group">
+                <label>Passwort</label>
+                <input type="password" id="loginPassword" placeholder="••••••••">
+            </div>
+            <button class="btn btn-primary" id="loginBtn">Anmelden</button>
+            <div class="auth-toggle">
+                Kein Konto? <a class="toggle-register-link">Jetzt registrieren</a>
+            </div>
+        </div>
+        
+        <div id="registerForm" class="hidden">
+            <div id="regError" class="error hidden"></div>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="registerName" placeholder="Dein Name">
+            </div>
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="registerEmail" placeholder="deine@email.de">
+            </div>
+            <div class="form-group">
+                <label>Passwort</label>
+                <input type="password" id="registerPassword" placeholder="••••••••">
+            </div>
+            <div class="form-group">
+                <label>Passwort wiederholen</label>
+                <input type="password" id="registerPasswordConfirm" placeholder="••••••••">
+            </div>
+            <div class="form-group">
+                <label>Einladungscode</label>
+                <input type="text" id="registerInviteCode" placeholder="Von deinem Team erhalten">
+            </div>
+            <button class="btn btn-primary" id="registerBtn">Registrieren</button>
+            <div class="auth-toggle">
+                Bereits registriert? <a class="toggle-register-link">Anmelden</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="appScreen" class="hidden app-container">
+    <div class="sidebar">
+        <h1>Fritsch</h1>
+        <p id="userGreeting" style="font-size: 12px; color: rgba(255,255,255,0.6); margin-top: -16px; margin-bottom: 16px;"></p>
+        <div class="sidebar-menu">
+            <div class="sidebar-item" data-page="converter">🔄 Konverter</div>
+            <div class="sidebar-item" data-page="planner">📥 Auftragsimport</div>
+            <div class="sidebar-item active" data-page="board">🗂️ Planungsboard</div>
+            <div class="sidebar-item" data-page="endbearbeitung">🔧 Endbearbeitung</div>
+            <div class="sidebar-item" data-page="ausgeliefert">📦 Ausgeliefert</div>
+            <div class="sidebar-item" data-page="databases">💾 Datenbanken</div>
+        </div>
+        <div class="sidebar-logout">
+            <div class="sidebar-item" id="logoutBtn">🚪 Abmelden</div>
+        </div>
+    </div>
+    
+    <div class="main">
+        <div id="converterPage" class="page hidden">
+            <div class="header">
+                <h2>Bestellungskonverter</h2>
+                <p>Bestellungs-Excel → Auftragsplaner-Format</p>
+            </div>
+            <div class="card">
+                <h3>Bestellungs-Excel hochladen</h3>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Bestellungs-Excel wählen</div>
+                    <input type="file" id="converterFile" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                </label>
+            </div>
+            <div id="converterPreview" class="hidden card">
+                <h3>Vorschau</h3>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Artikelnummer</th>
+                                <th>Auftragsnummer</th>
+                                <th>Menge</th>
+                                <th>Lieferdatum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="converterTable"></tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 24px;">
+                    <button class="btn btn-primary" id="exportConverterBtn">📊 Export</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="plannerPage" class="page hidden">
+            <div class="header">
+                <h2>Auftragsimport</h2>
+                <p>Aufträge-Excel hochladen und automatisch einplanen</p>
+            </div>
+            <div class="card">
+                <h3>Aufträge-Excel hochladen</h3>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Aufträge-Excel</div>
+                    <input type="file" id="plannerOrders" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                </label>
+            </div>
+            <div id="plannerDoneNote" class="hidden card">
+                <h3>✅ Plan erstellt</h3>
+                <p style="color: #64748b; margin-bottom: 16px;">Die Aufträge wurden eingeplant und für alle sichtbar gespeichert.</p>
+                <p id="plannerDoneHint" style="color: #0369a1; margin-bottom: 16px;"></p>
+                <button class="btn btn-primary" id="goToBoardBtn">Zum Planungsboard →</button>
+            </div>
+        </div>
+
+        <div id="boardPage" class="page">
+            <div class="header">
+                <h2>Planungsboard</h2>
+                <p>Maschinenauslastung und Aufträge, für alle sichtbar und bearbeitbar</p>
+            </div>
+            <div id="inviteCard" class="card hidden">
+                <h3>Team einladen</h3>
+                <p style="color: #64748b; margin-bottom: 16px;">Diesen Link an Kollegen schicken, damit sie sich registrieren und dieselbe Planung sehen/bearbeiten können.</p>
+                <div class="form-group">
+                    <input type="text" id="inviteLinkInput" readonly>
+                </div>
+                <button class="btn btn-primary" id="copyInviteBtn">Link kopieren</button>
+            </div>
+            <div class="card">
+                <h3>Maschinenauslastung</h3>
+                <div class="machine-grid" id="machineGrid"></div>
+            </div>
+            <div class="card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                    <h3>Aufträge (Drag & Drop)</h3>
+                    <span id="boardSyncStatus" style="font-size: 12px; color: #94a3b8;"></span>
+                </div>
+                <div class="kanban-board" id="kanbanBoard"></div>
+                <div style="margin-top: 24px;">
+                    <button class="btn btn-primary" id="exportBtn">📊 Export</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="endbearbeitungPage" class="page hidden">
+            <div class="header">
+                <h2>Endbearbeitung</h2>
+                <p>Produzierte Artikel, die noch endbearbeitet werden müssen</p>
+            </div>
+            <div class="card">
+                <div class="kanban-liste" id="endbearbeitungListe"></div>
+            </div>
+        </div>
+
+        <div id="ausgeliefertPage" class="page hidden">
+            <div class="header">
+                <h2>Ausgeliefert</h2>
+                <p>Bereits ausgelieferte Artikel mit Warenausgangsdatum</p>
+            </div>
+            <div class="card">
+                <div class="kanban-liste" id="ausgeliefertListe"></div>
+            </div>
+        </div>
+
+        <div id="databasesPage" class="page hidden">
+            <div class="header">
+                <h2>Datenbanken</h2>
+                <p>Verwalte deine Elastomer + PTFE Datenbanken</p>
+            </div>
+            <div class="card">
+                <h3>Elastomer-Datenbank</h3>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Elastomer-Excel hochladen</div>
+                    <input type="file" id="dbElastomer" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                </label>
+                <div id="elastomerStatus" style="color: #64748b; margin-top: 12px;"></div>
+            </div>
+            <div class="card">
+                <h3>PTFE-Datenbank</h3>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">PTFE-Excel hochladen</div>
+                    <input type="file" id="dbPtfe" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                </label>
+                <div id="ptfeStatus" style="color: #64748b; margin-top: 12px;"></div>
+            </div>
+            <div class="card">
+                <h3>Stückliste (BOM)</h3>
+                <p style="color: #64748b; margin-bottom: 16px;">Aus SAP BI exportiert - liefert Artikel-/Komponentenbezeichnungen und die Komponentenliste je Artikel.</p>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Stückliste-Excel hochladen</div>
+                    <input type="file" id="dbStueckliste" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                </label>
+                <div id="stuecklisteStatus" style="color: #64748b; margin-top: 12px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
