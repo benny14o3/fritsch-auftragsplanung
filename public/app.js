@@ -938,7 +938,8 @@ function renderGantt(orders) {
     const grid = document.getElementById('ganttGrid');
     if (!grid) return;
 
-    const mitTerminen = orders.filter(o => o.startDatum && o.endDatum);
+    // Nur produzierbare Aufträge (alle Komponenten da) im Zeitplan zeigen.
+    const mitTerminen = orders.filter(o => o.startDatum && o.endDatum && istKomponentenBereit(o));
     const tage = computeTimelineTage(mitTerminen);
     const wochen = groupByWeek(tage);
 
