@@ -1,6 +1,7 @@
 const express = require('express');
 const Order = require('../models/Order');
 const authMiddleware = require('../middleware/auth');
+const adminMiddleware = require('../middleware/admin');
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ router.get('/', authMiddleware, async (req, res) => {
 // schon in Endbearbeitung oder ausgeliefert sind, bleiben erhalten (Nachverfolgbarkeit) -
 // und werden hier anhand der Auftragsnummer erkannt, damit sie nicht als neue
 // Produktions-Karte doppelt auftauchen, falls sie in der Excel erneut auftaucht.
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { orders } = req.body;
     const bereitsWeiter = await Order.find({ phase: { $ne: 'produktion' } }).select('auftragsnummer');

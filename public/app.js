@@ -82,6 +82,9 @@ function showApp() {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('appScreen').classList.remove('hidden');
     document.getElementById('userGreeting').textContent = `Angemeldet als ${currentUser.name}`;
+    document.querySelectorAll('.admin-only').forEach(el => {
+        el.classList.toggle('hidden', currentUser.role !== 'admin');
+    });
     loadExistingBoard();
 }
 
@@ -89,7 +92,12 @@ function switchPage(event) {
     showPage(event.currentTarget.getAttribute('data-page'));
 }
 
+const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases'];
+
 function showPage(page) {
+    if (ADMIN_ONLY_PAGES.includes(page) && currentUser?.role !== 'admin') {
+        page = 'board';
+    }
     document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
     document.getElementById(page + 'Page').classList.remove('hidden');
     document.querySelectorAll('.sidebar-item[data-page]').forEach(el => {

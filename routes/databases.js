@@ -1,6 +1,7 @@
 const express = require('express');
 const Database = require('../models/Database');
 const authMiddleware = require('../middleware/auth');
+const adminMiddleware = require('../middleware/admin');
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ router.get('/:type', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:type', authMiddleware, async (req, res) => {
+router.post('/:type', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { type } = req.params;
     const { articles } = req.body;
@@ -37,7 +38,7 @@ router.post('/:type', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/:type', authMiddleware, async (req, res) => {
+router.delete('/:type', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await Database.deleteOne({ type: req.params.type });
     res.json({ success: true });

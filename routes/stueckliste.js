@@ -1,6 +1,7 @@
 const express = require('express');
 const Stueckliste = require('../models/Stueckliste');
 const authMiddleware = require('../middleware/auth');
+const adminMiddleware = require('../middleware/admin');
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get('/', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { materialien } = req.body;
     let doc = await Stueckliste.findOne();
