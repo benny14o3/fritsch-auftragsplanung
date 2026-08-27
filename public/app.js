@@ -572,6 +572,15 @@ function planMachines(orders) {
         };
     });
 
+    // Aufträge mit früherem Liefertermin zuerst einplanen (dringendere zuerst) -
+    // wer keinen Liefertermin hat, kommt ans Ende.
+    parsed.sort((a, b) => {
+        if (!a.lieferdatum && !b.lieferdatum) return 0;
+        if (!a.lieferdatum) return 1;
+        if (!b.lieferdatum) return -1;
+        return new Date(a.lieferdatum) - new Date(b.lieferdatum);
+    });
+
     const computed = parsed.map(o => {
         // PTFE-Artikel werden über eine feste Zeit pro 100 Stück kalkuliert,
         // Elastomer-Artikel über Kavitätenzahl und Runden pro Schicht.
@@ -694,12 +703,6 @@ function buildCardElement(order, { spalte = null } = {}) {
     if (order.lieferdatum) bestellTeile.push(`Liefertermin ${formatDateShort(order.lieferdatum)}`);
     const bestellung = bestellTeile.length ? `<div class="kanban-card-bestellung">🧾 ${bestellTeile.join(' · ')}</div>` : '';
 
-    const startText = formatDateShort(order.startDatum);
-    const endText = formatDateShort(order.endDatum);
-    const zeitraum = order.startDatum
-        ? `<div class="kanban-card-schedule">📅 ${startText}${endText && endText !== startText ? ' – ' + endText : ''}</div>`
-        : '';
-
     let parallel = '';
     if (spalte && order.maschineId2) {
         const parallelId = spalte.id === order.maschineId ? order.maschineId2 : order.maschineId;
@@ -719,7 +722,7 @@ function buildCardElement(order, { spalte = null } = {}) {
         komponentenHtml = `<div class="kanban-card-komponenten ${komplett ? 'komplett' : ''}">${zeilen}</div>`;
     }
 
-    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${zeitraum}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${order.menge} Stk · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>`;
+    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${order.menge} Stk · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>`;
 
     card.querySelectorAll('.komp-date').forEach(input => {
         input.draggable = false;
@@ -831,7 +834,14 @@ function renderBoard() {
             .sort((a, b) => {
                 const bereitA = istKomponentenBereit(a) ? 0 : 1;
                 const bereitB = istKomponentenBereit(b) ? 0 : 1;
-                return bereitA !== bereitB ? bereitA - bereitB : a.position - b.position;
+                if (bereitA !== bereitB) return bereitA - bereitB;
+                if (a.lieferdatum && b.lieferdatum) {
+                    const diff = new Date(a.lieferdatum) - new Date(b.lieferdatum);
+                    if (diff !== 0) return diff;
+                } else if (a.lieferdatum || b.lieferdatum) {
+                    return a.lieferdatum ? -1 : 1;
+                }
+                return a.position - b.position;
             });
 
         col.innerHTML = `<div class="kanban-column-header">${spalte.name}</div><div class="kanban-column-sub">${cards.length} Auftrag${cards.length === 1 ? '' : 'e'}</div>`;
