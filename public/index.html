@@ -35,6 +35,7 @@
         .sidebar-item { padding: 12px 16px; border-radius: 6px; cursor: pointer; transition: background-color 0.2s; font-size: 14px; }
         .sidebar-item:hover { background-color: rgba(255,255,255,0.1); }
         .sidebar-item.active { background-color: #16a34a; }
+        .sidebar-section-label { padding: 12px 16px 2px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255,255,255,0.4); }
         .sidebar-logout { margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); }
         
         .main { flex: 1; overflow-y: auto; padding: 32px; }
@@ -184,9 +185,14 @@
         <div class="sidebar-menu">
             <div class="sidebar-item admin-only hidden" data-page="converter">🔄 Konverter</div>
             <div class="sidebar-item admin-only hidden" data-page="planner">📥 Auftragsimport</div>
-            <div class="sidebar-item active" data-page="board">🗂️ Planungsboard</div>
-            <div class="sidebar-item" data-page="endbearbeitung">🔧 Endbearbeitung</div>
-            <div class="sidebar-item" data-page="ausgeliefert">📦 Ausgeliefert</div>
+            <div class="sidebar-section-label">Formgebung</div>
+            <div class="sidebar-item active" data-page="boardFormgebung">🗂️ Planungsboard</div>
+            <div class="sidebar-item" data-page="endbearbeitungFormgebung">🔧 Endbearbeitung</div>
+            <div class="sidebar-item" data-page="ausgeliefertFormgebung">📦 Ausgeliefert</div>
+            <div class="sidebar-section-label">CNC</div>
+            <div class="sidebar-item" data-page="boardCnc">🗂️ Planungsboard</div>
+            <div class="sidebar-item" data-page="endbearbeitungCnc">🔧 Endbearbeitung</div>
+            <div class="sidebar-item" data-page="ausgeliefertCnc">📦 Ausgeliefert</div>
             <div class="sidebar-item admin-only hidden" data-page="databases">💾 Datenbanken</div>
         </div>
         <div class="sidebar-logout">
@@ -246,7 +252,10 @@
                 <h3>✅ Plan erstellt</h3>
                 <p style="color: #64748b; margin-bottom: 16px;">Die Aufträge wurden eingeplant und für alle sichtbar gespeichert.</p>
                 <p id="plannerDoneHint" style="color: #0369a1; margin-bottom: 16px;"></p>
-                <button class="btn btn-primary" id="goToBoardBtn">Zum Planungsboard →</button>
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn btn-primary" id="goToBoardFormgebungBtn" style="width: auto;">Zur Formgebung →</button>
+                    <button class="btn btn-primary" id="goToBoardCncBtn" style="width: auto;">Zum CNC →</button>
+                </div>
             </div>
             <div class="card">
                 <h3>Auftrag manuell hinzufügen</h3>
@@ -276,9 +285,9 @@
             </div>
         </div>
 
-        <div id="boardPage" class="page">
+        <div id="boardFormgebungPage" class="page">
             <div class="header">
-                <h2>Planungsboard</h2>
+                <h2>Planungsboard · Formgebung</h2>
                 <p>Maschinenauslastung und Aufträge, für alle sichtbar und bearbeitbar</p>
             </div>
             <div id="inviteCard" class="card hidden">
@@ -291,45 +300,94 @@
             </div>
             <div class="card">
                 <h3>Maschinenauslastung</h3>
-                <div class="machine-grid" id="machineGrid"></div>
+                <div class="machine-grid" id="machineGridFormgebung"></div>
             </div>
             <div class="card">
                 <h3>Zeitplan</h3>
                 <div class="gantt-wrapper">
-                    <div class="gantt-grid" id="ganttGrid"></div>
+                    <div class="gantt-grid" id="ganttGridFormgebung"></div>
                 </div>
             </div>
             <div class="card">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
                     <h3>Aufträge (Drag & Drop)</h3>
-                    <span id="boardSyncStatus" style="font-size: 12px; color: #94a3b8;"></span>
+                    <span id="boardSyncStatusFormgebung" style="font-size: 12px; color: #94a3b8;"></span>
                 </div>
-                <div class="kanban-board" id="kanbanBoard"></div>
+                <div class="kanban-board" id="kanbanBoardFormgebung"></div>
                 <div style="margin-top: 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                    <button class="btn btn-primary" id="exportBtn" style="width: auto;">📊 Export</button>
-                    <button class="btn danger admin-only hidden" id="deleteAllOrdersBtn">🗑 Alle Aufträge löschen</button>
-                    <span id="deleteAllOrdersNote" style="font-size: 13px; color: #b91c1c;"></span>
+                    <button class="btn btn-primary" id="exportBtnFormgebung" style="width: auto;">📊 Export</button>
+                    <button class="btn danger admin-only hidden" id="deleteAllOrdersBtnFormgebung">🗑 Alle Formgebung-Aufträge löschen</button>
+                    <span id="deleteAllOrdersNoteFormgebung" style="font-size: 13px; color: #b91c1c;"></span>
                 </div>
             </div>
         </div>
 
-        <div id="endbearbeitungPage" class="page hidden">
+        <div id="boardCncPage" class="page hidden">
             <div class="header">
-                <h2>Endbearbeitung</h2>
+                <h2>Planungsboard · CNC</h2>
+                <p>Maschinenauslastung und Aufträge, für alle sichtbar und bearbeitbar</p>
+            </div>
+            <div class="card">
+                <h3>Maschinenauslastung</h3>
+                <div class="machine-grid" id="machineGridCnc"></div>
+            </div>
+            <div class="card">
+                <h3>Zeitplan</h3>
+                <div class="gantt-wrapper">
+                    <div class="gantt-grid" id="ganttGridCnc"></div>
+                </div>
+            </div>
+            <div class="card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                    <h3>Aufträge (Drag & Drop)</h3>
+                    <span id="boardSyncStatusCnc" style="font-size: 12px; color: #94a3b8;"></span>
+                </div>
+                <div class="kanban-board" id="kanbanBoardCnc"></div>
+                <div style="margin-top: 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="exportBtnCnc" style="width: auto;">📊 Export</button>
+                    <button class="btn danger admin-only hidden" id="deleteAllOrdersBtnCnc">🗑 Alle CNC-Aufträge löschen</button>
+                    <span id="deleteAllOrdersNoteCnc" style="font-size: 13px; color: #b91c1c;"></span>
+                </div>
+            </div>
+        </div>
+
+        <div id="endbearbeitungFormgebungPage" class="page hidden">
+            <div class="header">
+                <h2>Endbearbeitung · Formgebung</h2>
                 <p>Produzierte Artikel, die noch endbearbeitet werden müssen</p>
             </div>
             <div class="card">
-                <div class="kanban-liste" id="endbearbeitungListe"></div>
+                <div class="kanban-liste" id="endbearbeitungListeFormgebung"></div>
             </div>
         </div>
 
-        <div id="ausgeliefertPage" class="page hidden">
+        <div id="endbearbeitungCncPage" class="page hidden">
             <div class="header">
-                <h2>Ausgeliefert</h2>
+                <h2>Endbearbeitung · CNC</h2>
+                <p>Produzierte Artikel, die noch endbearbeitet werden müssen</p>
+            </div>
+            <div class="card">
+                <div class="kanban-liste" id="endbearbeitungListeCnc"></div>
+            </div>
+        </div>
+
+        <div id="ausgeliefertFormgebungPage" class="page hidden">
+            <div class="header">
+                <h2>Ausgeliefert · Formgebung</h2>
                 <p>Bereits ausgelieferte Artikel mit Warenausgangsdatum</p>
             </div>
             <div class="card">
-                <div class="kanban-liste" id="ausgeliefertListe"></div>
+                <div class="kanban-liste" id="ausgeliefertListeFormgebung"></div>
+            </div>
+        </div>
+
+        <div id="ausgeliefertCncPage" class="page hidden">
+            <div class="header">
+                <h2>Ausgeliefert · CNC</h2>
+                <p>Bereits ausgelieferte Artikel mit Warenausgangsdatum</p>
+            </div>
+            <div class="card">
+                <div class="kanban-liste" id="ausgeliefertListeCnc"></div>
             </div>
         </div>
 

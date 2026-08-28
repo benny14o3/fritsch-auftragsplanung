@@ -86,9 +86,13 @@ router.delete('/:orderId', authMiddleware, async (req, res) => {
 });
 
 // Alle Aufträge unwiderruflich löschen (Produktion, Endbearbeitung, Ausgeliefert).
+// Formgebung und CNC sind getrennte Bereiche - optional per ?dbType= auf einen davon
+// einschränken, ohne query löscht es wirklich alles.
 router.delete('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const result = await Order.deleteMany({});
+    const { dbType } = req.query;
+    const filter = dbType ? { dbType } : {};
+    const result = await Order.deleteMany(filter);
     res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -93,10 +93,14 @@ function switchPage(event) {
 }
 
 const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases'];
+// Formgebung (Elastomer/Maplan) und CNC (PTFE) sind komplett getrennte Bereiche -
+// eigenes Board, eigene Endbearbeitung, eigenes Ausgeliefert je Bereich.
+const BOARD_PAGES = ['boardFormgebung', 'boardCnc', 'endbearbeitungFormgebung', 'endbearbeitungCnc', 'ausgeliefertFormgebung', 'ausgeliefertCnc'];
+const DBTYPE_SUFFIX = { Elastomer: 'Formgebung', PTFE: 'Cnc' };
 
 function showPage(page) {
     if (ADMIN_ONLY_PAGES.includes(page) && currentUser?.role !== 'admin') {
-        page = 'board';
+        page = 'boardFormgebung';
     }
     document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
     document.getElementById(page + 'Page').classList.remove('hidden');
@@ -104,7 +108,7 @@ function showPage(page) {
         el.classList.toggle('active', el.getAttribute('data-page') === page);
     });
 
-    if (page === 'board' || page === 'endbearbeitung' || page === 'ausgeliefert') loadExistingBoard();
+    if (BOARD_PAGES.includes(page)) loadExistingBoard();
 }
 
 async function loadExistingBoard() {
@@ -789,26 +793,31 @@ function addDeleteAction(card, orderId) {
 }
 
 function renderAll() {
-    renderBoard();
-    renderEndbearbeitung();
-    renderAusgeliefert();
+    renderBoard('Elastomer');
+    renderBoard('PTFE');
+    renderEndbearbeitung('Elastomer');
+    renderEndbearbeitung('PTFE');
+    renderAusgeliefert('Elastomer');
+    renderAusgeliefert('PTFE');
 }
 
-function renderBoard() {
-    const produktionOrders = boardOrders.filter(o => !o.phase || o.phase === 'produktion');
+function renderBoard(dbType) {
+    const suffix = DBTYPE_SUFFIX[dbType];
+    const maschinenListe = MASCHINEN.filter(m => m.type === dbType);
+    const produktionOrders = boardOrders.filter(o => (!o.phase || o.phase === 'produktion') && o.dbType === dbType);
 
     if (produktionOrders.length === 0) {
-        document.getElementById('machineGrid').innerHTML = '';
-        document.getElementById('kanbanBoard').innerHTML = '<p style="color: #64748b;">Noch keine Aufträge geplant. Lade im Auftragsimport eine Aufträge-Excel hoch.</p>';
-        renderGantt([]);
+        document.getElementById('machineGrid' + suffix).innerHTML = '';
+        document.getElementById('kanbanBoard' + suffix).innerHTML = '<p style="color: #64748b;">Noch keine Aufträge geplant. Lade im Auftragsimport eine Aufträge-Excel hoch.</p>';
+        renderGantt([], dbType);
         return;
     }
 
-    renderGantt(produktionOrders);
+    renderGantt(produktionOrders, dbType);
 
-    const machineGrid = document.getElementById('machineGrid');
+    const machineGrid = document.getElementById('machineGrid' + suffix);
     machineGrid.innerHTML = '';
-    MASCHINEN.forEach(m => {
+    maschinenListe.forEach(m => {
         const cards = produktionOrders.filter(o => o.maschineId === m.id || o.maschineId2 === m.id);
         let freiAb = nextWeekday(new Date());
         cards.forEach(o => {
@@ -819,9 +828,9 @@ function renderBoard() {
         machineGrid.innerHTML += `<div class="machine-card"><div class="machine-name">${m.name}</div><div class="machine-percent" style="font-size: 20px;">${cards.length}</div><div style="font-size: 11px; color: #64748b;">Auftr${cards.length === 1 ? 'ag' : 'äge'} · frei ab ${formatDateShort(freiAb)}</div></div>`;
     });
 
-    const board = document.getElementById('kanbanBoard');
+    const board = document.getElementById('kanbanBoard' + suffix);
     board.innerHTML = '';
-    const spalten = [...MASCHINEN, { id: null, name: 'Nicht zugewiesen' }];
+    const spalten = [...maschinenListe, { id: null, name: 'Nicht zugewiesen' }];
 
     spalten.forEach(spalte => {
         const col = document.createElement('div');
@@ -901,7 +910,7 @@ function renderBoard() {
         board.appendChild(col);
     });
 
-    const statusEl = document.getElementById('boardSyncStatus');
+    const statusEl = document.getElementById('boardSyncStatus' + suffix);
     if (statusEl) statusEl.textContent = `Zuletzt aktualisiert: ${new Date().toLocaleTimeString('de-DE')}`;
 }
 
@@ -942,8 +951,10 @@ function groupByWeek(tage) {
     return gruppen;
 }
 
-function renderGantt(orders) {
-    const grid = document.getElementById('ganttGrid');
+function renderGantt(orders, dbType) {
+    const suffix = DBTYPE_SUFFIX[dbType];
+    const maschinenListe = MASCHINEN.filter(m => m.type === dbType);
+    const grid = document.getElementById('ganttGrid' + suffix);
     if (!grid) return;
 
     // Nur produzierbare Aufträge (alle Komponenten da) im Zeitplan zeigen.
@@ -952,7 +963,7 @@ function renderGantt(orders) {
     const wochen = groupByWeek(tage);
 
     grid.innerHTML = '';
-    grid.style.gridTemplateColumns = `40px 46px repeat(${MASCHINEN.length}, 92px)`;
+    grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, 92px)`;
     grid.style.gridTemplateRows = `32px repeat(${tage.length}, 30px)`;
 
     const ecke = document.createElement('div');
@@ -961,7 +972,7 @@ function renderGantt(orders) {
     ecke.style.gridRow = '1 / span 1';
     grid.appendChild(ecke);
 
-    MASCHINEN.forEach((m, mi) => {
+    maschinenListe.forEach((m, mi) => {
         const header = document.createElement('div');
         header.className = 'gantt-machine-header';
         header.textContent = m.name;
@@ -990,7 +1001,7 @@ function renderGantt(orders) {
         dayLabel.style.gridRow = `${i + 2} / span 1`;
         grid.appendChild(dayLabel);
 
-        MASCHINEN.forEach((m, mi) => {
+        maschinenListe.forEach((m, mi) => {
             const cell = document.createElement('div');
             cell.className = 'gantt-cell';
             cell.style.gridColumn = `${mi + 3} / span 1`;
@@ -1021,7 +1032,7 @@ function renderGantt(orders) {
     mitTerminen.forEach(o => {
         [o.maschineId, o.maschineId2].filter(Boolean).forEach(maschineId => {
             const feld = maschineId === o.maschineId ? 'maschineId' : 'maschineId2';
-            const mi = MASCHINEN.findIndex(m => m.id === maschineId);
+            const mi = maschinenListe.findIndex(m => m.id === maschineId);
             if (mi === -1) return;
             const start = new Date(o.startDatum);
             const ende = new Date(o.endDatum);
@@ -1083,10 +1094,10 @@ async function moveGanttOrder(orderId, feld, maschineId, neuerStartTag) {
     }
 }
 
-function renderEndbearbeitung() {
-    const liste = document.getElementById('endbearbeitungListe');
+function renderEndbearbeitung(dbType) {
+    const liste = document.getElementById('endbearbeitungListe' + DBTYPE_SUFFIX[dbType]);
     if (!liste) return;
-    const cards = boardOrders.filter(o => o.phase === 'endbearbeitung');
+    const cards = boardOrders.filter(o => o.phase === 'endbearbeitung' && o.dbType === dbType);
     liste.innerHTML = '';
     if (cards.length === 0) {
         liste.innerHTML = '<p style="color: #64748b;">Keine Aufträge in der Endbearbeitung.</p>';
@@ -1101,11 +1112,11 @@ function renderEndbearbeitung() {
     });
 }
 
-function renderAusgeliefert() {
-    const liste = document.getElementById('ausgeliefertListe');
+function renderAusgeliefert(dbType) {
+    const liste = document.getElementById('ausgeliefertListe' + DBTYPE_SUFFIX[dbType]);
     if (!liste) return;
     const cards = boardOrders
-        .filter(o => o.phase === 'ausgeliefert')
+        .filter(o => o.phase === 'ausgeliefert' && o.dbType === dbType)
         .sort((a, b) => new Date(b.warenausgang || 0) - new Date(a.warenausgang || 0));
     liste.innerHTML = '';
     if (cards.length === 0) {
@@ -1193,40 +1204,46 @@ async function deleteOrder(orderId) {
 
 // Wie addDeleteAction: keine native confirm()-Box (wird in manchen Kontexten
 // stillschweigend unterdrückt), sondern zweiter Klick innerhalb von 5s bestätigt.
-let deleteAllConfirming = false;
-let deleteAllResetTimer = null;
-async function handleDeleteAllOrders() {
-    const btn = document.getElementById('deleteAllOrdersBtn');
-    const note = document.getElementById('deleteAllOrdersNote');
-    if (!deleteAllConfirming) {
-        deleteAllConfirming = true;
-        btn.textContent = 'Wirklich ALLE Aufträge löschen? Nochmal klicken';
-        deleteAllResetTimer = setTimeout(() => {
-            deleteAllConfirming = false;
-            btn.textContent = '🗑 Alle Aufträge löschen';
+// Formgebung und CNC sind komplett getrennte Bereiche - "Alle löschen" betrifft
+// deshalb nur die Aufträge des jeweiligen Bereichs (alle Phasen).
+const deleteAllState = {};
+async function handleDeleteAllOrders(dbType) {
+    const suffix = DBTYPE_SUFFIX[dbType];
+    const label = suffix === 'Formgebung' ? 'Formgebung' : 'CNC';
+    const btn = document.getElementById('deleteAllOrdersBtn' + suffix);
+    const note = document.getElementById('deleteAllOrdersNote' + suffix);
+    const state = deleteAllState[dbType] || (deleteAllState[dbType] = { confirming: false, timer: null });
+
+    if (!state.confirming) {
+        state.confirming = true;
+        btn.textContent = `Wirklich ALLE ${label}-Aufträge löschen? Nochmal klicken`;
+        state.timer = setTimeout(() => {
+            state.confirming = false;
+            btn.textContent = `🗑 Alle ${label}-Aufträge löschen`;
         }, 5000);
         return;
     }
-    clearTimeout(deleteAllResetTimer);
-    deleteAllConfirming = false;
-    btn.textContent = '🗑 Alle Aufträge löschen';
+    clearTimeout(state.timer);
+    state.confirming = false;
+    btn.textContent = `🗑 Alle ${label}-Aufträge löschen`;
 
     try {
-        const res = await fetch(`${API_URL}/orders`, {
+        const res = await fetch(`${API_URL}/orders?dbType=${dbType}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) throw new Error();
-        boardOrders = [];
+        boardOrders = boardOrders.filter(o => o.dbType !== dbType);
         renderAll();
         note.style.color = '#15803d';
-        note.textContent = 'Alle Aufträge gelöscht.';
+        note.textContent = `Alle ${label}-Aufträge gelöscht.`;
     } catch (err) {
         note.style.color = '#b91c1c';
         note.textContent = 'Löschen fehlgeschlagen. Bitte erneut versuchen.';
     }
 }
-document.getElementById('deleteAllOrdersBtn')?.addEventListener('click', handleDeleteAllOrders);
+document.getElementById('deleteAllOrdersBtnFormgebung')?.addEventListener('click', () => handleDeleteAllOrders('Elastomer'));
+document.getElementById('deleteAllOrdersBtnCnc')?.addEventListener('click', () => handleDeleteAllOrders('PTFE'));
 
 // Nächster freier Werktag für eine Maschine basierend auf dem tatsächlich
 // aktuell geplanten Bestand (nicht nur "heute"), damit ein manuell hinzugefügter
@@ -1432,31 +1449,35 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
     }
 }
 
-function exportPlannerExcel() {
-    const data = boardOrders.filter(r => !r.phase || r.phase === 'produktion').map(r => ({
-        'Auftrag': r.auftragsnummer,
-        'Bestellung': r.bestellnummer || '',
-        'Artikel': r.artikelnummer,
-        'Menge': r.menge,
-        'Maschine': MASCHINEN.find(m => m.id === r.maschineId)?.name || 'Nicht zugewiesen',
-        'Maschine 2': MASCHINEN.find(m => m.id === r.maschineId2)?.name || '',
-        'Start': r.startDatum ? new Date(r.startDatum).toLocaleDateString('de-DE') : '',
-        'Ende': r.endDatum ? new Date(r.endDatum).toLocaleDateString('de-DE') : '',
-        'Zeit (h)': (r.bearbeitungsMin / 60).toFixed(1),
-        'Schichten': r.schichten,
-        'Status': r.status,
-    }));
+function exportPlannerExcel(dbType) {
+    const data = boardOrders
+        .filter(r => (!r.phase || r.phase === 'produktion') && r.dbType === dbType)
+        .map(r => ({
+            'Auftrag': r.auftragsnummer,
+            'Bestellung': r.bestellnummer || '',
+            'Artikel': r.artikelnummer,
+            'Menge': r.menge,
+            'Maschine': MASCHINEN.find(m => m.id === r.maschineId)?.name || 'Nicht zugewiesen',
+            'Maschine 2': MASCHINEN.find(m => m.id === r.maschineId2)?.name || '',
+            'Start': r.startDatum ? new Date(r.startDatum).toLocaleDateString('de-DE') : '',
+            'Ende': r.endDatum ? new Date(r.endDatum).toLocaleDateString('de-DE') : '',
+            'Zeit (h)': (r.bearbeitungsMin / 60).toFixed(1),
+            'Schichten': r.schichten,
+            'Status': r.status,
+        }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Planung');
-    XLSX.writeFile(wb, 'Auftragsplanung.xlsx');
+    XLSX.writeFile(wb, dbType === 'Elastomer' ? 'Auftragsplanung-Formgebung.xlsx' : 'Auftragsplanung-CNC.xlsx');
 }
 
 document.getElementById('loginBtn')?.addEventListener('click', handleLogin);
 document.getElementById('registerBtn')?.addEventListener('click', handleRegister);
 document.getElementById('logoutBtn')?.addEventListener('click', handleLogout);
-document.getElementById('exportBtn')?.addEventListener('click', exportPlannerExcel);
-document.getElementById('goToBoardBtn')?.addEventListener('click', () => showPage('board'));
+document.getElementById('exportBtnFormgebung')?.addEventListener('click', () => exportPlannerExcel('Elastomer'));
+document.getElementById('exportBtnCnc')?.addEventListener('click', () => exportPlannerExcel('PTFE'));
+document.getElementById('goToBoardFormgebungBtn')?.addEventListener('click', () => showPage('boardFormgebung'));
+document.getElementById('goToBoardCncBtn')?.addEventListener('click', () => showPage('boardCnc'));
 document.getElementById('exportConverterBtn')?.addEventListener('click', exportConverterExcel);
 document.querySelectorAll('.toggle-register-link').forEach(el => el.addEventListener('click', toggleRegister));
 document.querySelectorAll('.sidebar-item[data-page]').forEach(el => el.addEventListener('click', switchPage));
@@ -1529,7 +1550,8 @@ function enableHorizontalWheelScroll(el) {
         }
     }, { passive: false });
 }
-enableHorizontalWheelScroll(document.getElementById('kanbanBoard'));
+enableHorizontalWheelScroll(document.getElementById('kanbanBoardFormgebung'));
+enableHorizontalWheelScroll(document.getElementById('kanbanBoardCnc'));
 document.querySelectorAll('.gantt-wrapper').forEach(enableHorizontalWheelScroll);
 
 initSession();
