@@ -513,6 +513,7 @@ function parseExcelDatum(value) {
 
 let boardOrders = [];
 let draggedOrderId = null;
+let draggedOrderFeld = null;
 let isDragging = false;
 let boardPollTimer = null;
 
@@ -828,19 +829,16 @@ function renderBoard() {
         col.dataset.maschineId = spalte.id ?? '';
 
         // Aufträge, bei denen alle Komponenten da sind, stehen oben in der Spalte -
-        // innerhalb der beiden Gruppen bleibt die manuelle Reihenfolge (position) erhalten.
+        // innerhalb der beiden Gruppen entscheidet die Reihenfolge (position). Die
+        // Liefertermin-Priorisierung passiert schon bei der Einplanung (position wird
+        // dort nach Liefertermin vergeben) - hier NICHT zusätzlich nach lieferdatum
+        // sortieren, sonst überschreibt das jedes manuelle Verschieben per Drag & Drop.
         const cards = produktionOrders
             .filter(o => spalte.id === null ? !o.maschineId : (o.maschineId === spalte.id || o.maschineId2 === spalte.id))
             .sort((a, b) => {
                 const bereitA = istKomponentenBereit(a) ? 0 : 1;
                 const bereitB = istKomponentenBereit(b) ? 0 : 1;
                 if (bereitA !== bereitB) return bereitA - bereitB;
-                if (a.lieferdatum && b.lieferdatum) {
-                    const diff = new Date(a.lieferdatum) - new Date(b.lieferdatum);
-                    if (diff !== 0) return diff;
-                } else if (a.lieferdatum || b.lieferdatum) {
-                    return a.lieferdatum ? -1 : 1;
-                }
                 return a.position - b.position;
             });
 
@@ -997,12 +995,32 @@ function renderGantt(orders) {
             cell.className = 'gantt-cell';
             cell.style.gridColumn = `${mi + 3} / span 1`;
             cell.style.gridRow = `${i + 2} / span 1`;
+            cell.dataset.maschineId = m.id;
+            cell.dataset.tag = t.toISOString();
+
+            // Wie beim Kanban-Board ist die Maschinen-/Terminzuordnung nur eine
+            // Empfehlung - per Drag & Drop im Zeitplan lässt sich jeder Auftrag frei
+            // auf eine andere Maschine oder einen anderen Tag verschieben.
+            cell.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                cell.classList.add('drag-over');
+            });
+            cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+            cell.addEventListener('drop', (e) => {
+                e.preventDefault();
+                cell.classList.remove('drag-over');
+                if (draggedOrderId && draggedOrderFeld) {
+                    moveGanttOrder(draggedOrderId, draggedOrderFeld, m.id, t);
+                }
+            });
+
             grid.appendChild(cell);
         });
     });
 
     mitTerminen.forEach(o => {
         [o.maschineId, o.maschineId2].filter(Boolean).forEach(maschineId => {
+            const feld = maschineId === o.maschineId ? 'maschineId' : 'maschineId2';
             const mi = MASCHINEN.findIndex(m => m.id === maschineId);
             if (mi === -1) return;
             const start = new Date(o.startDatum);
@@ -1014,12 +1032,55 @@ function renderGantt(orders) {
             const bar = document.createElement('div');
             bar.className = `gantt-bar card-${o.status}`;
             bar.textContent = `${o.artikelnummer} · ${o.auftragsnummer}`;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
+            bar.draggable = true;
+            bar.addEventListener('dragstart', (e) => {
+                e.stopPropagation();
+                draggedOrderId = o._id;
+                draggedOrderFeld = feld;
+                isDragging = true;
+                bar.classList.add('dragging');
+            });
+            bar.addEventListener('dragend', () => {
+                isDragging = false;
+                draggedOrderFeld = null;
+                bar.classList.remove('dragging');
+            });
             grid.appendChild(bar);
         });
     });
+}
+
+// Auftrag im Zeitplan per Drag & Drop auf eine andere Maschine/einen anderen Tag
+// verschieben - die Dauer bleibt gleich, nur Start (und damit Ende) verschiebt sich.
+async function moveGanttOrder(orderId, feld, maschineId, neuerStartTag) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+
+    const tage = Math.max(1, order.schichten || 1);
+    const startDatum = nextWeekday(new Date(neuerStartTag));
+    const endDatum = addWorkdays(startDatum, tage - 1);
+
+    order[feld] = maschineId;
+    order.startDatum = startDatum;
+    order.endDatum = endDatum;
+    order.status = 'geplant';
+    renderAll();
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ [feld]: maschineId, startDatum, endDatum, status: 'geplant' }),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
 }
 
 function renderEndbearbeitung() {

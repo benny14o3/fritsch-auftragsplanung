@@ -36,10 +36,13 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 // Für Drag & Drop und Phasenwechsel (Produktion -> Endbearbeitung -> Ausgeliefert).
 router.patch('/:orderId', authMiddleware, async (req, res) => {
   try {
-    const { maschineId, position, status, komponenten, phase, warenausgang } = req.body;
+    const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang } = req.body;
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     if (maschineId !== undefined) order.maschineId = maschineId;
+    if (maschineId2 !== undefined) order.maschineId2 = maschineId2;
+    if (startDatum !== undefined) order.startDatum = startDatum;
+    if (endDatum !== undefined) order.endDatum = endDatum;
     if (position !== undefined) order.position = position;
     if (status !== undefined) order.status = status;
     if (komponenten !== undefined) order.komponenten = komponenten;
