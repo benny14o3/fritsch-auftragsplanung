@@ -22,6 +22,8 @@
         .btn { padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 0.2s; }
         .btn-primary { background-color: #16a34a; color: white; width: 100%; }
         .btn-primary:hover { background-color: #15803d; }
+        .btn.danger { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; width: auto; }
+        .btn.danger:hover { background-color: #fee2e2; }
         .error { background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; margin-bottom: 16px; color: #991b1b; font-size: 13px; }
         .auth-toggle { text-align: center; margin-top: 20px; font-size: 14px; color: #64748b; }
         .auth-toggle a { color: #16a34a; cursor: pointer; font-weight: 600; text-decoration: underline; }
@@ -244,6 +246,32 @@
                 <p id="plannerDoneHint" style="color: #0369a1; margin-bottom: 16px;"></p>
                 <button class="btn btn-primary" id="goToBoardBtn">Zum Planungsboard →</button>
             </div>
+            <div class="card">
+                <h3>Auftrag manuell hinzufügen</h3>
+                <p style="color: #64748b; margin-bottom: 16px;">Einzelnen Auftrag ohne Excel-Upload anlegen. Bestehende Aufträge bleiben dabei unverändert.</p>
+                <div class="form-group">
+                    <label>Auftragsnummer</label>
+                    <input type="text" id="manualAuftragsnummer">
+                </div>
+                <div class="form-group">
+                    <label>Artikelnummer</label>
+                    <input type="text" id="manualArtikelnummer">
+                </div>
+                <div class="form-group">
+                    <label>Menge</label>
+                    <input type="number" id="manualMenge" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Bestellnummer</label>
+                    <input type="text" id="manualBestellnummer">
+                </div>
+                <div class="form-group">
+                    <label>Liefertermin</label>
+                    <input type="date" id="manualLieferdatum">
+                </div>
+                <button class="btn btn-primary" id="manualAddBtn">Auftrag hinzufügen</button>
+                <p id="manualAddNote" style="margin-top: 12px;"></p>
+            </div>
         </div>
 
         <div id="boardPage" class="page">
@@ -275,8 +303,10 @@
                     <span id="boardSyncStatus" style="font-size: 12px; color: #94a3b8;"></span>
                 </div>
                 <div class="kanban-board" id="kanbanBoard"></div>
-                <div style="margin-top: 24px;">
-                    <button class="btn btn-primary" id="exportBtn">📊 Export</button>
+                <div style="margin-top: 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="exportBtn" style="width: auto;">📊 Export</button>
+                    <button class="btn danger admin-only hidden" id="deleteAllOrdersBtn">🗑 Alle Aufträge löschen</button>
+                    <span id="deleteAllOrdersNote" style="font-size: 13px; color: #b91c1c;"></span>
                 </div>
             </div>
         </div>

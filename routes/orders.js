@@ -51,10 +51,42 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Einzelnen Auftrag manuell anlegen, ohne den restlichen Plan anzurühren
+// (im Gegensatz zum Excel-Import, der die ganze Produktionsplanung ersetzt).
+router.post('/manual', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { order } = req.body;
+    if (!order || !order.auftragsnummer) {
+      return res.status(400).json({ error: 'Auftragsnummer fehlt' });
+    }
+    const bereitsVorhanden = await Order.findOne({ auftragsnummer: order.auftragsnummer });
+    if (bereitsVorhanden) {
+      return res.status(409).json({ error: `Auftrag ${order.auftragsnummer} existiert bereits` });
+    }
+    const maxPos = await Order.findOne({ phase: 'produktion' }).sort({ position: -1 }).select('position');
+    const created = await Order.create({
+      ...order,
+      phase: order.phase || 'produktion',
+      position: (maxPos?.position ?? -1) + 1,
+      createdBy: req.userId,
+      updatedBy: req.userId,
+    });
+    res.status(201).json(created);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.delete('/:orderId', authMiddleware, async (req, res) => {
   try {
     await Order.deleteOne({ _id: req.params.orderId });
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Alle Aufträge unwiderruflich löschen (Produktion, Endbearbeitung, Ausgeliefert).
+router.delete('/', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = await Order.deleteMany({});
+    res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

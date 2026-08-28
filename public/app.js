@@ -1130,6 +1130,193 @@ async function deleteOrder(orderId) {
     }
 }
 
+// Wie addDeleteAction: keine native confirm()-Box (wird in manchen Kontexten
+// stillschweigend unterdrückt), sondern zweiter Klick innerhalb von 5s bestätigt.
+let deleteAllConfirming = false;
+let deleteAllResetTimer = null;
+async function handleDeleteAllOrders() {
+    const btn = document.getElementById('deleteAllOrdersBtn');
+    const note = document.getElementById('deleteAllOrdersNote');
+    if (!deleteAllConfirming) {
+        deleteAllConfirming = true;
+        btn.textContent = 'Wirklich ALLE Aufträge löschen? Nochmal klicken';
+        deleteAllResetTimer = setTimeout(() => {
+            deleteAllConfirming = false;
+            btn.textContent = '🗑 Alle Aufträge löschen';
+        }, 5000);
+        return;
+    }
+    clearTimeout(deleteAllResetTimer);
+    deleteAllConfirming = false;
+    btn.textContent = '🗑 Alle Aufträge löschen';
+
+    try {
+        const res = await fetch(`${API_URL}/orders`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error();
+        boardOrders = [];
+        renderAll();
+        note.style.color = '#15803d';
+        note.textContent = 'Alle Aufträge gelöscht.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Löschen fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+document.getElementById('deleteAllOrdersBtn')?.addEventListener('click', handleDeleteAllOrders);
+
+// Nächster freier Werktag für eine Maschine basierend auf dem tatsächlich
+// aktuell geplanten Bestand (nicht nur "heute"), damit ein manuell hinzugefügter
+// Auftrag hinter den bestehenden Aufträgen auf dieser Maschine eingereiht wird.
+function getMachineNextFree(maschineId) {
+    const relevant = boardOrders.filter(o =>
+        o.phase === 'produktion' && o.endDatum && (o.maschineId === maschineId || o.maschineId2 === maschineId));
+    if (relevant.length === 0) return nextWeekday(new Date());
+    const maxEnd = relevant.reduce((max, o) => {
+        const d = new Date(o.endDatum);
+        return d > max ? d : max;
+    }, new Date(0));
+    return addWorkdays(maxEnd, 1);
+}
+
+async function handleManualAddOrder() {
+    const note = document.getElementById('manualAddNote');
+    const auftragsnummer = document.getElementById('manualAuftragsnummer').value.trim();
+    const artikelnummer = document.getElementById('manualArtikelnummer').value.trim();
+    const menge = parseInt(document.getElementById('manualMenge').value) || 0;
+    const bestellnummer = document.getElementById('manualBestellnummer').value.trim();
+    const lieferdatumStr = document.getElementById('manualLieferdatum').value;
+
+    note.style.color = '#b91c1c';
+    if (!auftragsnummer || !artikelnummer || !menge) {
+        note.textContent = 'Bitte Auftragsnummer, Artikelnummer und Menge angeben.';
+        return;
+    }
+
+    let match = plannerDBs.Elastomer?.find(a => a.material === artikelnummer);
+    let dbType = 'Elastomer';
+    if (!match) {
+        const ptfeMatch = plannerDBs.PTFE?.find(a => a.material === artikelnummer);
+        if (ptfeMatch) {
+            match = ptfeMatch;
+            dbType = 'PTFE';
+        }
+    }
+
+    const bomMatch = stueckliste.materialien.find(m => m.material === artikelnummer);
+    const komponenten = (bomMatch?.komponenten || []).map(k => ({
+        artikelnummer: k.artikelnummer,
+        bezeichnung: k.bezeichnung,
+        wareneingang: null,
+    }));
+    if (dbType === 'Elastomer') {
+        komponenten.push({ artikelnummer: '', bezeichnung: 'Werkzeug', wareneingang: null });
+    }
+
+    const maschinenNamen = dbType === 'Elastomer'
+        ? (classifyElastomerSubtyp(match?.maschine) ? [classifyElastomerSubtyp(match?.maschine)] : [])
+        : classifyPtfeMaschinen(match?.maschine);
+
+    const kavitaet = match?.kavitaet || 1;
+    const rundenProSchicht = match?.rundenProSchicht || 1;
+    const zeitProHundert = match?.zeitProHundert || 0;
+
+    const bearbeitungsMin = dbType === 'PTFE'
+        ? (menge / 100) * zeitProHundert
+        : Math.ceil(menge / kavitaet) * (480 / rundenProSchicht);
+    const schichten = Math.ceil(bearbeitungsMin / 480);
+    const tage = Math.max(1, schichten);
+
+    let maschineId = null;
+    let maschineId2 = null;
+    let startDatum = null;
+    let endDatum = null;
+    const braucht_manuelle_pruefung = maschinenNamen.length === 0;
+
+    if (!braucht_manuelle_pruefung && maschinenNamen.length === 1) {
+        const kandidaten = MASCHINEN.filter(m => m.type === dbType && m.subtyp === maschinenNamen[0]);
+        let ziel = null;
+        let zielFrei = null;
+        kandidaten.forEach(m => {
+            const frei = getMachineNextFree(m.id);
+            if (!ziel || frei < zielFrei) {
+                ziel = m;
+                zielFrei = frei;
+            }
+        });
+        if (ziel) {
+            startDatum = new Date(zielFrei);
+            endDatum = addWorkdays(startDatum, tage - 1);
+            maschineId = ziel.id;
+        }
+    } else if (!braucht_manuelle_pruefung && maschinenNamen.length === 2) {
+        const m1 = MASCHINEN.find(m => m.type === dbType && m.subtyp === maschinenNamen[0]);
+        const m2 = MASCHINEN.find(m => m.type === dbType && m.subtyp === maschinenNamen[1]);
+        if (m1 && m2) {
+            const frei1 = getMachineNextFree(m1.id);
+            const frei2 = getMachineNextFree(m2.id);
+            const fruehester = frei1 > frei2 ? frei1 : frei2;
+            startDatum = new Date(fruehester);
+            endDatum = addWorkdays(startDatum, tage - 1);
+            maschineId = m1.id;
+            maschineId2 = m2.id;
+        }
+    }
+
+    const order = {
+        auftragsnummer,
+        bestellnummer,
+        lieferdatum: lieferdatumStr ? new Date(lieferdatumStr).toISOString() : null,
+        artikelnummer,
+        beschreibung: bomMatch?.bezeichnung || match?.beschreibung || '',
+        komponenten,
+        menge,
+        dbType,
+        kavitaet,
+        rundenProSchicht,
+        zeitProHundert,
+        maschineId,
+        maschineId2,
+        startDatum,
+        endDatum,
+        bearbeitungsMin,
+        schichten,
+        status: maschineId ? 'geplant' : braucht_manuelle_pruefung ? 'ausstehend' : 'ueberlastet',
+        phase: 'produktion',
+    };
+
+    try {
+        const res = await fetch(`${API_URL}/orders/manual`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ order }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            note.textContent = data.error || 'Anlegen fehlgeschlagen.';
+            return;
+        }
+        note.style.color = '#15803d';
+        note.textContent = braucht_manuelle_pruefung
+            ? `✅ Auftrag ${auftragsnummer} angelegt - keine Maschine erkannt, bitte manuell einordnen.`
+            : `✅ Auftrag ${auftragsnummer} angelegt und eingeplant.`;
+        document.getElementById('manualAuftragsnummer').value = '';
+        document.getElementById('manualArtikelnummer').value = '';
+        document.getElementById('manualMenge').value = '';
+        document.getElementById('manualBestellnummer').value = '';
+        document.getElementById('manualLieferdatum').value = '';
+        await fetchBoard();
+    } catch (err) {
+        note.textContent = 'Anlegen fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+document.getElementById('manualAddBtn')?.addEventListener('click', handleManualAddOrder);
+
 async function moveOrder(orderId, maschineId, position) {
     // Die Maschinenzuordnung aus der Datenbank ist nur eine Empfehlung für die
     // Auto-Planung - manuelles Verschieben auf jede Maschine ist immer erlaubt.
@@ -1270,5 +1457,18 @@ async function initSession() {
         token = null;
     }
 }
+
+function enableHorizontalWheelScroll(el) {
+    if (!el) return;
+    el.addEventListener('wheel', (e) => {
+        if (el.scrollWidth <= el.clientWidth) return;
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            el.scrollLeft += e.deltaY;
+            e.preventDefault();
+        }
+    }, { passive: false });
+}
+enableHorizontalWheelScroll(document.getElementById('kanbanBoard'));
+document.querySelectorAll('.gantt-wrapper').forEach(enableHorizontalWheelScroll);
 
 initSession();
