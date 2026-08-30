@@ -1102,11 +1102,16 @@ function renderBoard(dbType) {
                 e.dataTransfer.setData('text/plain', order._id);
                 e.dataTransfer.effectAllowed = 'move';
                 draggedOrderId = order._id;
+                // Auch für den Zeitplan gesetzt, damit sich Karten (auch "Nicht
+                // zugewiesene") direkt auf eine Zeitplan-Zelle ziehen lassen -
+                // das legt dann Maschine + Start-/Enddatum auf einen Schlag fest.
+                draggedOrderFeld = 'maschineId';
                 isDragging = true;
                 card.classList.add('dragging');
             });
             handle.addEventListener('dragend', () => {
                 isDragging = false;
+                draggedOrderFeld = null;
                 card.classList.remove('dragging');
             });
             card.addEventListener('dragover', (e) => e.preventDefault());
