@@ -881,6 +881,10 @@ function renderBoard(dbType) {
 
             handle.addEventListener('dragstart', (e) => {
                 e.stopPropagation();
+                // Manche Browser (v.a. Firefox) starten einen Drag nur, wenn
+                // dataTransfer tatsächlich befüllt wird - sonst passiert visuell nichts.
+                e.dataTransfer.setData('text/plain', order._id);
+                e.dataTransfer.effectAllowed = 'move';
                 draggedOrderId = order._id;
                 isDragging = true;
                 card.classList.add('dragging');
@@ -1058,6 +1062,10 @@ function renderGantt(orders, dbType) {
             bar.draggable = true;
             bar.addEventListener('dragstart', (e) => {
                 e.stopPropagation();
+                // Manche Browser (v.a. Firefox) starten einen Drag nur, wenn
+                // dataTransfer tatsächlich befüllt wird - sonst passiert visuell nichts.
+                e.dataTransfer.setData('text/plain', o._id);
+                e.dataTransfer.effectAllowed = 'move';
                 draggedOrderId = o._id;
                 draggedOrderFeld = feld;
                 isDragging = true;
