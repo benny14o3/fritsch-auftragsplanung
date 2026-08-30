@@ -1178,7 +1178,7 @@ async function setWarenausgang(orderId, dateStr) {
     const order = boardOrders.find(o => o._id === orderId);
     if (!order) return;
     order.warenausgang = dateStr ? new Date(dateStr).toISOString() : null;
-    renderAusgeliefert();
+    renderAusgeliefert(order.dbType);
 
     try {
         await fetch(`${API_URL}/orders/${orderId}`, {
@@ -1413,7 +1413,7 @@ async function moveOrder(orderId, maschineId, position) {
     order.maschineId = maschineId;
     order.position = position;
     order.status = maschineId ? 'geplant' : 'ausstehend';
-    renderBoard();
+    renderBoard(order.dbType);
 
     try {
         await fetch(`${API_URL}/orders/${orderId}`, {
