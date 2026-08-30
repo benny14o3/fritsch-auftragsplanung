@@ -1191,8 +1191,8 @@ function renderGantt(orders, dbType) {
     const wochen = groupByWeek(tage);
 
     grid.innerHTML = '';
-    grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, 92px)`;
-    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 30px)`;
+    grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, 150px)`;
+    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 78px)`;
 
     const ecke = document.createElement('div');
     ecke.className = 'gantt-corner';
@@ -1270,8 +1270,13 @@ function renderGantt(orders, dbType) {
 
             const bar = document.createElement('div');
             bar.className = `gantt-bar card-${o.status}`;
-            const beschreibungHtml = o.beschreibung ? `<div class="gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : '';
-            bar.innerHTML = `<div class="gantt-bar-titel">${escapeHtml(o.artikelnummer)} · ${escapeHtml(o.auftragsnummer)}</div>${beschreibungHtml}`;
+            // Artikelnummer, Auftragsnummer und Bezeichnung als eigene Zeilen/Zellen -
+            // nicht mehr zusammengedrängt, damit die Bezeichnung lesbar bleibt.
+            bar.innerHTML = `
+                <div class="gantt-bar-zelle gantt-bar-artikel">${escapeHtml(o.artikelnummer)}</div>
+                <div class="gantt-bar-zelle gantt-bar-auftrag">Auftrag ${escapeHtml(o.auftragsnummer)}</div>
+                ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
+            `;
             bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
