@@ -321,7 +321,10 @@ async function saveDatabase(type, file, statusEl) {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
 
-        plannerDBs[type] = articles;
+        // data.articles (nicht das lokal geparste articles) hat die von Mongo
+        // vergebenen _id's - die brauchen die Bearbeiten/Löschen-Aktionen in der Tabelle.
+        plannerDBs[type] = data.articles;
+        renderDatabaseTable(type);
         statusEl.textContent = `✅ ${articles.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
     } catch (err) {
         statusEl.textContent = '❌ Fehler: ' + err.message;
@@ -386,11 +389,224 @@ async function loadDatabaseStatus() {
             const statusEl = document.getElementById(db.type === 'Elastomer' ? 'elastomerStatus' : 'ptfeStatus');
             const text = `✅ ${db.articles.length} Artikel gespeichert (${new Date(db.lastUpdated).toLocaleString('de-DE')})`;
             if (statusEl) statusEl.textContent = text;
+            renderDatabaseTable(db.type);
         });
     } catch (err) {
         // Datenbanken konnten nicht geladen werden, Status bleibt leer
     }
 }
+
+// Einzelne Artikel direkt in der Weboberfläche pflegen, ohne jedes Mal die
+// ganze Excel neu hochladen zu müssen. Nur ein Artikel gleichzeitig editierbar.
+let editingArticle = { type: null, id: null };
+
+function renderDatabaseTable(type) {
+    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
+    const tbody = document.getElementById(`${suffix}ArticleTable`);
+    if (!tbody) return;
+
+    const filterEl = document.getElementById(`${suffix}Filter`);
+    const filterVal = (filterEl?.value || '').toLowerCase().trim();
+    const articles = plannerDBs[type] || [];
+    const filtered = filterVal
+        ? articles.filter(a => (a.material || '').toLowerCase().includes(filterVal) || (a.beschreibung || '').toLowerCase().includes(filterVal))
+        : articles;
+
+    tbody.innerHTML = '';
+    filtered.forEach(article => {
+        const isEditing = editingArticle.type === type && editingArticle.id === article._id;
+        const tr = document.createElement('tr');
+        const actionsTd = document.createElement('td');
+        actionsTd.className = 'table-actions';
+
+        if (!isEditing) {
+            [article.material, article.beschreibung, article.maschine, article.kavitaet ?? '', article.rundenProSchicht ?? '', article.zeitProHundert ?? ''].forEach(val => {
+                const td = document.createElement('td');
+                td.textContent = val;
+                tr.appendChild(td);
+            });
+
+            const editBtn = document.createElement('button');
+            editBtn.textContent = '✏️';
+            editBtn.title = 'Bearbeiten';
+            editBtn.addEventListener('click', () => {
+                editingArticle = { type, id: article._id };
+                renderDatabaseTable(type);
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'danger';
+            delBtn.textContent = '🗑';
+            delBtn.title = 'Löschen';
+            let confirming = false;
+            let resetTimer = null;
+            delBtn.addEventListener('click', () => {
+                if (!confirming) {
+                    confirming = true;
+                    delBtn.textContent = 'Sicher?';
+                    resetTimer = setTimeout(() => {
+                        confirming = false;
+                        delBtn.textContent = '🗑';
+                    }, 4000);
+                    return;
+                }
+                clearTimeout(resetTimer);
+                deleteDatabaseArticle(type, article._id);
+            });
+
+            actionsTd.appendChild(editBtn);
+            actionsTd.appendChild(delBtn);
+        } else {
+            const fields = [
+                { key: 'material', value: article.material, inputType: 'text' },
+                { key: 'beschreibung', value: article.beschreibung, inputType: 'text' },
+                { key: 'maschine', value: article.maschine, inputType: 'text' },
+                { key: 'kavitaet', value: article.kavitaet ?? '', inputType: 'number' },
+                { key: 'rundenProSchicht', value: article.rundenProSchicht ?? '', inputType: 'number' },
+                { key: 'zeitProHundert', value: article.zeitProHundert ?? '', inputType: 'number' },
+            ];
+            const inputs = {};
+            fields.forEach(f => {
+                const td = document.createElement('td');
+                const input = document.createElement('input');
+                input.className = 'table-input';
+                input.type = f.inputType;
+                input.value = f.value;
+                td.appendChild(input);
+                tr.appendChild(td);
+                inputs[f.key] = input;
+            });
+
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'primary';
+            saveBtn.textContent = '💾';
+            saveBtn.title = 'Speichern';
+            saveBtn.addEventListener('click', () => {
+                saveEditArticle(type, article._id, {
+                    material: inputs.material.value.trim(),
+                    beschreibung: inputs.beschreibung.value.trim(),
+                    maschine: inputs.maschine.value.trim(),
+                    kavitaet: inputs.kavitaet.value ? Number(inputs.kavitaet.value) : undefined,
+                    rundenProSchicht: inputs.rundenProSchicht.value ? Number(inputs.rundenProSchicht.value) : undefined,
+                    zeitProHundert: inputs.zeitProHundert.value ? Number(inputs.zeitProHundert.value) : undefined,
+                });
+            });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = '✕';
+            cancelBtn.title = 'Abbrechen';
+            cancelBtn.addEventListener('click', () => {
+                editingArticle = { type: null, id: null };
+                renderDatabaseTable(type);
+            });
+
+            actionsTd.appendChild(saveBtn);
+            actionsTd.appendChild(cancelBtn);
+        }
+
+        tr.appendChild(actionsTd);
+        tbody.appendChild(tr);
+    });
+}
+
+async function addDatabaseArticle(type) {
+    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
+    const note = document.getElementById(`${suffix}ArticleNote`);
+    const material = document.getElementById(`${suffix}NewMaterial`).value.trim();
+    const beschreibung = document.getElementById(`${suffix}NewBeschreibung`).value.trim();
+    const maschine = document.getElementById(`${suffix}NewMaschine`).value.trim();
+    const kavitaetStr = document.getElementById(`${suffix}NewKavitaet`).value;
+    const rundenStr = document.getElementById(`${suffix}NewRunden`).value;
+    const zeitStr = document.getElementById(`${suffix}NewZeit`).value;
+
+    note.style.color = '#b91c1c';
+    if (!material) {
+        note.textContent = 'Bitte Artikelnummer angeben.';
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/databases/${type}/articles`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                material,
+                beschreibung,
+                maschine,
+                kavitaet: kavitaetStr ? Number(kavitaetStr) : undefined,
+                rundenProSchicht: rundenStr ? Number(rundenStr) : undefined,
+                zeitProHundert: zeitStr ? Number(zeitStr) : undefined,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            note.textContent = data.error || 'Anlegen fehlgeschlagen.';
+            return;
+        }
+        plannerDBs[type] = [...(plannerDBs[type] || []), data];
+        renderDatabaseTable(type);
+        note.style.color = '#15803d';
+        note.textContent = `✅ Artikel ${material} hinzugefügt.`;
+        ['NewMaterial', 'NewBeschreibung', 'NewMaschine', 'NewKavitaet', 'NewRunden', 'NewZeit'].forEach(id => {
+            const el = document.getElementById(`${suffix}${id}`);
+            if (el) el.value = '';
+        });
+    } catch (err) {
+        note.textContent = 'Anlegen fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+
+async function saveEditArticle(type, articleId, updates) {
+    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
+    const note = document.getElementById(`${suffix}ArticleNote`);
+    try {
+        const res = await fetch(`${API_URL}/databases/${type}/articles/${articleId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(updates),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            note.style.color = '#b91c1c';
+            note.textContent = data.error || 'Speichern fehlgeschlagen.';
+            return;
+        }
+        const list = plannerDBs[type] || [];
+        const idx = list.findIndex(a => a._id === articleId);
+        if (idx !== -1) list[idx] = data;
+        editingArticle = { type: null, id: null };
+        renderDatabaseTable(type);
+        note.style.color = '#15803d';
+        note.textContent = '✅ Artikel gespeichert.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Speichern fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+
+async function deleteDatabaseArticle(type, articleId) {
+    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
+    const note = document.getElementById(`${suffix}ArticleNote`);
+    try {
+        const res = await fetch(`${API_URL}/databases/${type}/articles/${articleId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error();
+        plannerDBs[type] = (plannerDBs[type] || []).filter(a => a._id !== articleId);
+        renderDatabaseTable(type);
+        note.style.color = '#15803d';
+        note.textContent = 'Artikel gelöscht.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Löschen fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+
+document.getElementById('elastomerAddArticleBtn')?.addEventListener('click', () => addDatabaseArticle('Elastomer'));
+document.getElementById('ptfeAddArticleBtn')?.addEventListener('click', () => addDatabaseArticle('PTFE'));
+document.getElementById('elastomerFilter')?.addEventListener('input', () => renderDatabaseTable('Elastomer'));
+document.getElementById('ptfeFilter')?.addEventListener('input', () => renderDatabaseTable('PTFE'));
 
 function escapeHtml(str) {
     const div = document.createElement('div');

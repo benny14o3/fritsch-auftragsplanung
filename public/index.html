@@ -56,6 +56,14 @@
         thead { background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0; }
         th { padding: 12px; text-align: left; font-weight: 600; color: #0f172a; }
         td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+        .table-input { width: 100%; min-width: 70px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; }
+        .table-actions { display: flex; gap: 6px; white-space: nowrap; }
+        .table-actions button { font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; }
+        .table-actions button:hover { background: #f1f5f9; }
+        .table-actions button.danger { color: #b91c1c; border-color: #fecaca; }
+        .table-actions button.danger:hover { background: #fef2f2; }
+        .table-actions button.primary { background: #16a34a; color: white; border-color: #16a34a; }
+        .table-actions button.primary:hover { background: #15803d; }
         
         .draggable-order { cursor: move; background: #f8fafc; border-left: 4px solid #16a34a; }
         .draggable-order.dragging { opacity: 0.5; }
@@ -408,6 +416,40 @@
                 <div id="elastomerStatus" style="color: #64748b; margin-top: 12px;"></div>
             </div>
             <div class="card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
+                    <h3>Elastomer-Artikel verwalten</h3>
+                    <input type="text" id="elastomerFilter" placeholder="🔍 Artikel suchen..." style="max-width: 240px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Artikelnummer</th>
+                                <th>Bezeichnung</th>
+                                <th>Maschine</th>
+                                <th>Kavität</th>
+                                <th>Runden/Schicht</th>
+                                <th>Zeit/100</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" class="table-input" id="elastomerNewMaterial" placeholder="Artikelnr."></td>
+                                <td><input type="text" class="table-input" id="elastomerNewBeschreibung" placeholder="Bezeichnung"></td>
+                                <td><input type="text" class="table-input" id="elastomerNewMaschine" placeholder="z.B. Maplan Gummi"></td>
+                                <td><input type="number" class="table-input" id="elastomerNewKavitaet" placeholder="1"></td>
+                                <td><input type="number" class="table-input" id="elastomerNewRunden" placeholder="1"></td>
+                                <td><input type="number" class="table-input" id="elastomerNewZeit" placeholder="0"></td>
+                                <td><button class="btn btn-primary" id="elastomerAddArticleBtn" style="width: auto; white-space: nowrap;">+ Hinzufügen</button></td>
+                            </tr>
+                        </tbody>
+                        <tbody id="elastomerArticleTable"></tbody>
+                    </table>
+                </div>
+                <p id="elastomerArticleNote" style="margin-top: 12px; font-size: 13px;"></p>
+            </div>
+            <div class="card">
                 <h3>PTFE-Datenbank</h3>
                 <label class="upload-area">
                     <div class="upload-icon">📤</div>
@@ -415,6 +457,40 @@
                     <input type="file" id="dbPtfe" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
                 </label>
                 <div id="ptfeStatus" style="color: #64748b; margin-top: 12px;"></div>
+            </div>
+            <div class="card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
+                    <h3>PTFE-Artikel verwalten</h3>
+                    <input type="text" id="ptfeFilter" placeholder="🔍 Artikel suchen..." style="max-width: 240px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Artikelnummer</th>
+                                <th>Bezeichnung</th>
+                                <th>Maschine</th>
+                                <th>Kavität</th>
+                                <th>Runden/Schicht</th>
+                                <th>Zeit/100</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" class="table-input" id="ptfeNewMaterial" placeholder="Artikelnr."></td>
+                                <td><input type="text" class="table-input" id="ptfeNewBeschreibung" placeholder="Bezeichnung"></td>
+                                <td><input type="text" class="table-input" id="ptfeNewMaschine" placeholder="z.B. DoLa"></td>
+                                <td><input type="number" class="table-input" id="ptfeNewKavitaet" placeholder="1"></td>
+                                <td><input type="number" class="table-input" id="ptfeNewRunden" placeholder="1"></td>
+                                <td><input type="number" class="table-input" id="ptfeNewZeit" placeholder="0"></td>
+                                <td><button class="btn btn-primary" id="ptfeAddArticleBtn" style="width: auto; white-space: nowrap;">+ Hinzufügen</button></td>
+                            </tr>
+                        </tbody>
+                        <tbody id="ptfeArticleTable"></tbody>
+                    </table>
+                </div>
+                <p id="ptfeArticleNote" style="margin-top: 12px; font-size: 13px;"></p>
             </div>
             <div class="card">
                 <h3>Stückliste (BOM)</h3>
