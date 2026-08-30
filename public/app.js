@@ -1778,14 +1778,18 @@ async function initSession() {
     }
 }
 
+// Nur bei gehaltener Shift-Taste (übliche Konvention für Mausrad -> seitwärts)
+// auf horizontales Scrollen umleiten. Ohne Shift ganz normal durchlassen, sonst
+// blockiert das jeden vertikalen Scroll übers Board/Zeitplan (z.B. am Trackpad).
+// Echtes seitliches Wischen am Trackpad erzeugt eigenes deltaX und scrollt die
+// Elemente ohnehin nativ, ganz ohne dieses Skript.
 function enableHorizontalWheelScroll(el) {
     if (!el) return;
     el.addEventListener('wheel', (e) => {
+        if (!e.shiftKey) return;
         if (el.scrollWidth <= el.clientWidth) return;
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-            el.scrollLeft += e.deltaY;
-            e.preventDefault();
-        }
+        el.scrollLeft += e.deltaY;
+        e.preventDefault();
     }, { passive: false });
 }
 enableHorizontalWheelScroll(document.getElementById('kanbanBoardFormgebung'));
