@@ -1778,18 +1778,36 @@ async function initSession() {
     }
 }
 
-// Nur bei gehaltener Shift-Taste (übliche Konvention für Mausrad -> seitwärts)
-// auf horizontales Scrollen umleiten. Ohne Shift ganz normal durchlassen, sonst
-// blockiert das jeden vertikalen Scroll übers Board/Zeitplan (z.B. am Trackpad).
-// Echtes seitliches Wischen am Trackpad erzeugt eigenes deltaX und scrollt die
-// Elemente ohnehin nativ, ganz ohne dieses Skript.
+// Bei gehaltener Shift-Taste (übliche Konvention für Mausrad -> seitwärts) auf
+// horizontales Scrollen umleiten. Ohne Shift eine rein vertikale Geste (z.B.
+// Trackpad runterscrollen) NIE dem Browser-Standardverhalten überlassen - manche
+// Browser/Trackpad-Treiber wandeln das über einem nur horizontal scrollbaren
+// Element sonst eigenmächtig in seitliches Scrollen um. Stattdessen übernehmen
+// wir das vertikale Scrollen hier selbst: im Element, solange darin noch Platz
+// ist, sonst auf der Seite - damit garantiert nichts seitwärts rutscht.
 function enableHorizontalWheelScroll(el) {
     if (!el) return;
     el.addEventListener('wheel', (e) => {
-        if (!e.shiftKey) return;
-        if (el.scrollWidth <= el.clientWidth) return;
-        el.scrollLeft += e.deltaY;
+        if (e.shiftKey) {
+            if (el.scrollWidth <= el.clientWidth) return;
+            el.scrollLeft += e.deltaY;
+            e.preventDefault();
+            return;
+        }
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return; // echte seitliche Geste durchlassen
+
+        const canScrollY = el.scrollHeight > el.clientHeight;
+        if (canScrollY) {
+            const maxScrollTop = el.scrollHeight - el.clientHeight;
+            const naechster = Math.min(Math.max(el.scrollTop + e.deltaY, 0), maxScrollTop);
+            if (naechster !== el.scrollTop) {
+                el.scrollTop = naechster;
+                e.preventDefault();
+                return;
+            }
+        }
         e.preventDefault();
+        window.scrollBy(0, e.deltaY);
     }, { passive: false });
 }
 enableHorizontalWheelScroll(document.getElementById('kanbanBoardFormgebung'));
