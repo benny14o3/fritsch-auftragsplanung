@@ -675,6 +675,14 @@ async function saveOrdersToBackend(orders) {
     }
 }
 
+// Während ein Datums-Feld (Wareneingang/Warenausgang) fokussiert ist, nicht neu
+// rendern - das würde den Input samt offenem Kalender-Picker ersetzen und ihn
+// vorzeitig schließen, noch bevor man ein Datum auswählen konnte.
+function isEditingDateInput() {
+    const el = document.activeElement;
+    return !!el && el.tagName === 'INPUT' && el.type === 'date';
+}
+
 async function fetchBoard() {
     try {
         const res = await fetch(`${API_URL}/orders`, {
@@ -682,7 +690,7 @@ async function fetchBoard() {
         });
         if (!res.ok) return;
         boardOrders = await res.json();
-        if (!isDragging) renderAll();
+        if (!isDragging && !isEditingDateInput()) renderAll();
     } catch (err) {
         // Poll-Fehler ignorieren, nächster Versuch folgt
     }
