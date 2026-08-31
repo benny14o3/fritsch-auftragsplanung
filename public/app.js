@@ -229,7 +229,8 @@ async function parseStueckliste(file) {
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
     const materialien = [];
-    let current = null;
+    const byMaterial = new Map();
+    let lastMaterial = null;
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i] || [];
         const [material, bezeichnung, , kompArtikel, kompBezeichnung, menge] = row;
@@ -237,15 +238,28 @@ async function parseStueckliste(file) {
         // (danach leer), andere wiederholen es in jeder Zeile - beides abfangen.
         const materialStr = (material !== undefined && material !== null && material !== '')
             ? material.toString().trim() : null;
-        if (materialStr && (!current || current.material !== materialStr)) {
+        if (materialStr) lastMaterial = materialStr;
+        if (!lastMaterial) continue;
+
+        // Ein Artikel kann in der Datei an mehreren, nicht direkt aufeinander-
+        // folgenden Stellen auftauchen (z.B. Rohr und Feder in getrennten
+        // Blöcken) - deshalb nach Materialnummer zusammenführen statt nur
+        // aufeinanderfolgende Zeilen zu gruppieren, sonst gehen Komponenten
+        // aus dem zweiten Block verloren.
+        let current = byMaterial.get(lastMaterial);
+        if (!current) {
             current = {
-                material: materialStr,
+                material: lastMaterial,
                 bezeichnung: (bezeichnung ?? '').toString().trim(),
                 komponenten: [],
             };
+            byMaterial.set(lastMaterial, current);
             materialien.push(current);
+        } else if (!current.bezeichnung && bezeichnung) {
+            current.bezeichnung = bezeichnung.toString().trim();
         }
-        if (current && kompArtikel !== undefined && kompArtikel !== null && kompArtikel !== '') {
+
+        if (kompArtikel !== undefined && kompArtikel !== null && kompArtikel !== '') {
             current.komponenten.push({
                 artikelnummer: kompArtikel.toString().trim(),
                 bezeichnung: (kompBezeichnung ?? '').toString().trim(),
