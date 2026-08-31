@@ -1129,8 +1129,12 @@ let isDragging = false;
 let boardPollTimer = null;
 
 function planMachines(orders) {
+    // Bestehende, bereits eingeplante Aufträge bleiben erhalten (siehe
+    // saveOrdersToBackend) - die neue Charge wird deshalb hinter deren
+    // tatsächlichem Ende eingereiht, statt jede Maschine ab "heute" neu zu
+    // verplanen (das würde bestehende Belegungen überbuchen/überschreiben).
     const naechsterFreierTag = {};
-    MASCHINEN.forEach(m => naechsterFreierTag[m.id] = nextWeekday(new Date()));
+    MASCHINEN.forEach(m => naechsterFreierTag[m.id] = getMachineNextFree(m.id));
 
     const columns = Object.keys(orders[0] || {});
     const artikelCol = findColumn(columns, 'artikel');
@@ -1258,9 +1262,10 @@ function planMachines(orders) {
 }
 
 async function saveOrdersToBackend(orders) {
-    // Ersetzt nur die Produktionsplanung - Aufträge in Endbearbeitung/Ausgeliefert bleiben
-    // erhalten. Danach den kompletten (geteilten) Bestand neu laden, nicht nur die Antwort,
-    // sonst würden diese Aufträge lokal aus boardOrders verschwinden.
+    // Fügt die neu hochgeladenen Aufträge zur bestehenden Planung hinzu, statt sie zu
+    // ersetzen - bereits vorhandene Aufträge (jede Phase) bleiben unangetastet. Danach
+    // den kompletten (geteilten) Bestand neu laden, nicht nur die Antwort, sonst würden
+    // diese Aufträge lokal aus boardOrders verschwinden.
     const res = await fetch(`${API_URL}/orders`, {
         method: 'POST',
         headers: {
@@ -1277,7 +1282,7 @@ async function saveOrdersToBackend(orders) {
     const hint = document.getElementById('plannerDoneHint');
     if (hint) {
         hint.textContent = data.uebersprungen > 0
-            ? `ℹ️ ${data.uebersprungen} Auftrag${data.uebersprungen === 1 ? '' : 'e'} übersprungen - bereits in Endbearbeitung oder ausgeliefert.`
+            ? `ℹ️ ${data.uebersprungen} Auftrag${data.uebersprungen === 1 ? '' : 'e'} übersprungen - bereits vorhanden.`
             : '';
     }
 }
