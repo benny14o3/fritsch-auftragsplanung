@@ -407,40 +407,52 @@ function parseBestellungsPdf(zeilen) {
 }
 
 document.getElementById('converterPdfFile')?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = [...e.target.files];
+    if (files.length === 0) return;
     const note = document.getElementById('converterPdfNote');
     note.style.color = '#64748b';
-    note.textContent = 'Lese PDF...';
-    try {
-        const zeilen = await extractPdfLines(file);
-        converterPdfData = parseBestellungsPdf(zeilen);
+    note.textContent = files.length === 1 ? 'Lese PDF...' : `Lese ${files.length} PDFs...`;
 
-        if (converterPdfData.length === 0) {
-            note.style.color = '#b91c1c';
-            note.textContent = 'Keine Positionen gefunden - das Format dieser PDF weicht evtl. ab.';
-            document.getElementById('converterPdfPreview').classList.add('hidden');
-            return;
+    converterPdfData = [];
+    const fehlerhaft = [];
+    for (const file of files) {
+        try {
+            const zeilen = await extractPdfLines(file);
+            const rows = parseBestellungsPdf(zeilen);
+            if (rows.length === 0) fehlerhaft.push(file.name);
+            converterPdfData.push(...rows);
+        } catch (err) {
+            fehlerhaft.push(file.name);
         }
-
-        const tbody = document.getElementById('converterPdfTable');
-        tbody.innerHTML = '';
-        converterPdfData.forEach(d => {
-            const tr = document.createElement('tr');
-            [d.artikelnummer, d.auftragsnummer, d.lieferdatum, d.menge, d.preis, d.bestellnummer, d.bestelldatum].forEach(val => {
-                const td = document.createElement('td');
-                td.textContent = val;
-                tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-        });
-        document.getElementById('converterPdfPreview').classList.remove('hidden');
-        note.style.color = '#15803d';
-        note.textContent = `✅ ${converterPdfData.length} Position${converterPdfData.length === 1 ? '' : 'en'} gefunden.`;
-    } catch (err) {
-        note.style.color = '#b91c1c';
-        note.textContent = 'Fehler beim Lesen der PDF: ' + err.message;
     }
+
+    if (converterPdfData.length === 0) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Keine Positionen gefunden - das Format dieser PDF(s) weicht evtl. ab.';
+        document.getElementById('converterPdfPreview').classList.add('hidden');
+        return;
+    }
+
+    const tbody = document.getElementById('converterPdfTable');
+    tbody.innerHTML = '';
+    converterPdfData.forEach(d => {
+        const tr = document.createElement('tr');
+        [d.artikelnummer, d.auftragsnummer, d.lieferdatum, d.menge, d.preis, d.bestellnummer, d.bestelldatum].forEach(val => {
+            const td = document.createElement('td');
+            td.textContent = val;
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    document.getElementById('converterPdfPreview').classList.remove('hidden');
+
+    const anzahlDateien = files.length - fehlerhaft.length;
+    let text = `✅ ${converterPdfData.length} Position${converterPdfData.length === 1 ? '' : 'en'} aus ${anzahlDateien} PDF${anzahlDateien === 1 ? '' : 's'} gefunden.`;
+    if (fehlerhaft.length > 0) {
+        text += ` ⚠️ Nicht erkannt: ${fehlerhaft.join(', ')}`;
+    }
+    note.style.color = fehlerhaft.length > 0 ? '#b45309' : '#15803d';
+    note.textContent = text;
 });
 
 function exportConverterPdfExcel() {

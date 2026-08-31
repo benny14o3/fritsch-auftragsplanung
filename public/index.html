@@ -252,11 +252,11 @@
             </div>
             <div class="card">
                 <h3>Bestellungs-PDF hochladen</h3>
-                <p style="color: #64748b; margin-bottom: 16px;">Liest Bestellnummer, Belegdatum und je Position Artikelnummer, Auftragsnummer, Lieferdatum, Menge und Preis direkt aus der PDF.</p>
+                <p style="color: #64748b; margin-bottom: 16px;">Liest Bestellnummer, Belegdatum und je Position Artikelnummer, Auftragsnummer, Lieferdatum, Menge und Preis direkt aus der PDF. Mehrere PDFs auf einmal möglich - landen zusammen in einer Excel.</p>
                 <label class="upload-area">
                     <div class="upload-icon">📤</div>
-                    <div class="upload-text">Bestellungs-PDF wählen</div>
-                    <input type="file" id="converterPdfFile" accept=".pdf,application/pdf">
+                    <div class="upload-text">Bestellungs-PDFs wählen (auch mehrere)</div>
+                    <input type="file" id="converterPdfFile" accept=".pdf,application/pdf" multiple>
                 </label>
                 <p id="converterPdfNote" style="margin-top: 12px; font-size: 13px;"></p>
             </div>
