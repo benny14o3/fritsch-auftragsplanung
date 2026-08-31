@@ -57,6 +57,7 @@
         th { padding: 12px; text-align: left; font-weight: 600; color: #0f172a; }
         td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
         .table-input { width: 100%; min-width: 70px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; }
+        textarea.table-input { font-family: ui-monospace, monospace; resize: vertical; line-height: 1.5; }
         .table-actions { display: flex; gap: 6px; white-space: nowrap; }
         .table-actions button { font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; }
         .table-actions button:hover { background: #f1f5f9; }
@@ -506,6 +507,35 @@
                     <input type="file" id="dbStueckliste" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
                 </label>
                 <div id="stuecklisteStatus" style="color: #64748b; margin-top: 12px;"></div>
+            </div>
+            <div class="card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
+                    <h3>Stückliste-Artikel verwalten</h3>
+                    <input type="text" id="stuecklisteFilter" placeholder="🔍 Artikel suchen..." style="max-width: 240px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">
+                </div>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Komponenten: eine Zeile pro Komponente, Format <code>Artikelnummer | Bezeichnung | Menge</code>.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Artikelnummer</th>
+                                <th>Bezeichnung</th>
+                                <th style="min-width: 260px;">Komponenten</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" class="table-input" id="stuecklisteNewMaterial" placeholder="Artikelnr."></td>
+                                <td><input type="text" class="table-input" id="stuecklisteNewBezeichnung" placeholder="Bezeichnung"></td>
+                                <td><textarea class="table-input" id="stuecklisteNewKomponenten" rows="2" placeholder="49266978 | DTM 75EPDM386 | 100"></textarea></td>
+                                <td><button class="btn btn-primary" id="stuecklisteAddBtn" style="width: auto; white-space: nowrap;">+ Hinzufügen</button></td>
+                            </tr>
+                        </tbody>
+                        <tbody id="stuecklisteArticleTable"></tbody>
+                    </table>
+                </div>
+                <p id="stuecklisteArticleNote" style="margin-top: 12px; font-size: 13px;"></p>
             </div>
         </div>
     </div>

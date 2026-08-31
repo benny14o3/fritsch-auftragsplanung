@@ -368,6 +368,7 @@ document.getElementById('dbStueckliste')?.addEventListener('change', async (e) =
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         stueckliste = data;
+        renderStuecklisteTable();
         statusEl.textContent = `✅ ${materialien.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
     } catch (err) {
         statusEl.textContent = '❌ Fehler: ' + err.message;
@@ -386,6 +387,7 @@ async function loadStueckliste() {
         if (statusEl && data.materialien?.length) {
             statusEl.textContent = `✅ ${data.materialien.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
         }
+        renderStuecklisteTable();
     } catch (err) {
         // Stückliste konnte nicht geladen werden, Status bleibt leer
     }
@@ -621,6 +623,222 @@ document.getElementById('elastomerAddArticleBtn')?.addEventListener('click', () 
 document.getElementById('ptfeAddArticleBtn')?.addEventListener('click', () => addDatabaseArticle('PTFE'));
 document.getElementById('elastomerFilter')?.addEventListener('input', () => renderDatabaseTable('Elastomer'));
 document.getElementById('ptfeFilter')?.addEventListener('input', () => renderDatabaseTable('PTFE'));
+
+// Stückliste (BOM) direkt in der Weboberfläche pflegen - jede Zeile im
+// Komponenten-Textfeld ist "Artikelnummer | Bezeichnung | Menge".
+function parseKomponentenText(text) {
+    return (text || '')
+        .split('\n')
+        .map(zeile => zeile.trim())
+        .filter(Boolean)
+        .map(zeile => {
+            const [artikelnummer, bezeichnung, menge] = zeile.split('|').map(t => (t ?? '').trim());
+            return { artikelnummer: artikelnummer || '', bezeichnung: bezeichnung || '', menge: parseFloat(menge) || 0 };
+        });
+}
+
+function formatKomponentenText(komponenten) {
+    return (komponenten || []).map(k => `${k.artikelnummer} | ${k.bezeichnung} | ${k.menge}`).join('\n');
+}
+
+let editingMaterial = null;
+
+function renderStuecklisteTable() {
+    const tbody = document.getElementById('stuecklisteArticleTable');
+    if (!tbody) return;
+
+    const filterEl = document.getElementById('stuecklisteFilter');
+    const filterVal = (filterEl?.value || '').toLowerCase().trim();
+    const materialien = stueckliste.materialien || [];
+    const filtered = filterVal
+        ? materialien.filter(m => (m.material || '').toLowerCase().includes(filterVal) || (m.bezeichnung || '').toLowerCase().includes(filterVal))
+        : materialien;
+
+    tbody.innerHTML = '';
+    filtered.forEach(m => {
+        const isEditing = editingMaterial === m.material;
+        const tr = document.createElement('tr');
+        const actionsTd = document.createElement('td');
+        actionsTd.className = 'table-actions';
+
+        if (!isEditing) {
+            const materialTd = document.createElement('td');
+            materialTd.textContent = m.material;
+            const bezTd = document.createElement('td');
+            bezTd.textContent = m.bezeichnung;
+            const kompTd = document.createElement('td');
+            kompTd.style.whiteSpace = 'pre-line';
+            kompTd.textContent = (m.komponenten || []).map(k => `${k.artikelnummer ? k.artikelnummer + ' - ' : ''}${k.bezeichnung}`).join('\n') || '–';
+            tr.appendChild(materialTd);
+            tr.appendChild(bezTd);
+            tr.appendChild(kompTd);
+
+            const editBtn = document.createElement('button');
+            editBtn.textContent = '✏️';
+            editBtn.title = 'Bearbeiten';
+            editBtn.addEventListener('click', () => {
+                editingMaterial = m.material;
+                renderStuecklisteTable();
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'danger';
+            delBtn.textContent = '🗑';
+            delBtn.title = 'Löschen';
+            let confirming = false;
+            let resetTimer = null;
+            delBtn.addEventListener('click', () => {
+                if (!confirming) {
+                    confirming = true;
+                    delBtn.textContent = 'Sicher?';
+                    resetTimer = setTimeout(() => {
+                        confirming = false;
+                        delBtn.textContent = '🗑';
+                    }, 4000);
+                    return;
+                }
+                clearTimeout(resetTimer);
+                deleteStücklisteMaterial(m.material);
+            });
+
+            actionsTd.appendChild(editBtn);
+            actionsTd.appendChild(delBtn);
+        } else {
+            const materialTd = document.createElement('td');
+            const materialInput = document.createElement('input');
+            materialInput.className = 'table-input';
+            materialInput.type = 'text';
+            materialInput.value = m.material;
+            materialTd.appendChild(materialInput);
+
+            const bezTd = document.createElement('td');
+            const bezInput = document.createElement('input');
+            bezInput.className = 'table-input';
+            bezInput.type = 'text';
+            bezInput.value = m.bezeichnung;
+            bezTd.appendChild(bezInput);
+
+            const kompTd = document.createElement('td');
+            const kompTextarea = document.createElement('textarea');
+            kompTextarea.className = 'table-input';
+            kompTextarea.rows = Math.max(2, (m.komponenten || []).length);
+            kompTextarea.value = formatKomponentenText(m.komponenten);
+            kompTd.appendChild(kompTextarea);
+
+            tr.appendChild(materialTd);
+            tr.appendChild(bezTd);
+            tr.appendChild(kompTd);
+
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'primary';
+            saveBtn.textContent = '💾';
+            saveBtn.title = 'Speichern';
+            saveBtn.addEventListener('click', () => {
+                saveEditMaterial(m.material, {
+                    material: materialInput.value.trim(),
+                    bezeichnung: bezInput.value.trim(),
+                    komponenten: parseKomponentenText(kompTextarea.value),
+                });
+            });
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = '✕';
+            cancelBtn.title = 'Abbrechen';
+            cancelBtn.addEventListener('click', () => {
+                editingMaterial = null;
+                renderStuecklisteTable();
+            });
+
+            actionsTd.appendChild(saveBtn);
+            actionsTd.appendChild(cancelBtn);
+        }
+
+        tr.appendChild(actionsTd);
+        tbody.appendChild(tr);
+    });
+}
+
+async function addStücklisteMaterial() {
+    const note = document.getElementById('stuecklisteArticleNote');
+    const material = document.getElementById('stuecklisteNewMaterial').value.trim();
+    const bezeichnung = document.getElementById('stuecklisteNewBezeichnung').value.trim();
+    const komponenten = parseKomponentenText(document.getElementById('stuecklisteNewKomponenten').value);
+
+    note.style.color = '#b91c1c';
+    if (!material) {
+        note.textContent = 'Bitte Artikelnummer angeben.';
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/stueckliste/materialien`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ material, bezeichnung, komponenten }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            note.textContent = data.error || 'Anlegen fehlgeschlagen.';
+            return;
+        }
+        stueckliste.materialien = [...(stueckliste.materialien || []), data];
+        renderStuecklisteTable();
+        note.style.color = '#15803d';
+        note.textContent = `✅ Artikel ${material} hinzugefügt.`;
+        document.getElementById('stuecklisteNewMaterial').value = '';
+        document.getElementById('stuecklisteNewBezeichnung').value = '';
+        document.getElementById('stuecklisteNewKomponenten').value = '';
+    } catch (err) {
+        note.textContent = 'Anlegen fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+
+async function saveEditMaterial(material, updates) {
+    const note = document.getElementById('stuecklisteArticleNote');
+    try {
+        const res = await fetch(`${API_URL}/stueckliste/materialien/${encodeURIComponent(material)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(updates),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            note.style.color = '#b91c1c';
+            note.textContent = data.error || 'Speichern fehlgeschlagen.';
+            return;
+        }
+        const idx = (stueckliste.materialien || []).findIndex(m => m.material === material);
+        if (idx !== -1) stueckliste.materialien[idx] = data;
+        editingMaterial = null;
+        renderStuecklisteTable();
+        note.style.color = '#15803d';
+        note.textContent = '✅ Artikel gespeichert.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Speichern fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+
+async function deleteStücklisteMaterial(material) {
+    const note = document.getElementById('stuecklisteArticleNote');
+    try {
+        const res = await fetch(`${API_URL}/stueckliste/materialien/${encodeURIComponent(material)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error();
+        stueckliste.materialien = (stueckliste.materialien || []).filter(m => m.material !== material);
+        renderStuecklisteTable();
+        note.style.color = '#15803d';
+        note.textContent = 'Artikel gelöscht.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Löschen fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+
+document.getElementById('stuecklisteAddBtn')?.addEventListener('click', addStücklisteMaterial);
+document.getElementById('stuecklisteFilter')?.addEventListener('input', renderStuecklisteTable);
 
 function escapeHtml(str) {
     const div = document.createElement('div');
