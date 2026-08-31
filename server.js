@@ -20,6 +20,10 @@ app.use(helmet({
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       "script-src": ["'self'", 'https://cdn.jsdelivr.net'],
+      // pdf.js lädt seinen Worker als eigenes Script (teils über eine blob:-URL) -
+      // ohne das bricht die PDF-Konvertierung im Bestellungskonverter.
+      "worker-src": ["'self'", 'blob:', 'https://cdn.jsdelivr.net'],
+      "child-src": ["'self'", 'blob:', 'https://cdn.jsdelivr.net'],
     },
   },
 }));

@@ -2,8 +2,13 @@ const API_URL = '/api';
 let token = localStorage.getItem('token');
 let currentUser = null;
 let converterData = [];
+let converterPdfData = [];
 let plannerDBs = { Elastomer: null, PTFE: null };
 let stueckliste = { materialien: [] };
+
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
 
 function toggleRegister() {
     const loginForm = document.getElementById('loginForm');
@@ -312,6 +317,148 @@ function exportConverterExcel() {
     XLSX.utils.book_append_sheet(wb, ws, 'Auftraege');
     XLSX.writeFile(wb, 'Auftragsplaner-Format.xlsx');
 }
+
+// Bestellungs-PDF (z.B. Freudenberg FST) einlesen und in die Auftragsplaner-
+// Tabelle konvertieren. PDF.js liefert Textfragmente mit x/y-Position statt
+// fertiger Zeilen - deshalb erst zu Zeilen gruppieren (übliche Technik: nach
+// y-Koordinate sortieren, kleine Abweichungen als "gleiche Zeile" zählen).
+function groupTextItemsIntoLines(items, yTolerance = 2) {
+    const sortiert = [...items].sort((a, b) => {
+        const dy = b.transform[5] - a.transform[5];
+        if (Math.abs(dy) > yTolerance) return dy;
+        return a.transform[4] - b.transform[4];
+    });
+    const zeilenItems = [];
+    let aktuell = null;
+    let aktuellY = null;
+    sortiert.forEach(item => {
+        if (aktuell === null || Math.abs(item.transform[5] - aktuellY) > yTolerance) {
+            aktuell = [];
+            aktuellY = item.transform[5];
+            zeilenItems.push(aktuell);
+        }
+        aktuell.push(item);
+    });
+    return zeilenItems
+        .map(its => its.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+async function extractPdfLines(file) {
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    const alleZeilen = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        alleZeilen.push(...groupTextItemsIntoLines(content.items));
+    }
+    return alleZeilen;
+}
+
+// Sucht ein Muster zeilenweise (nie über einen Zeilenumbruch hinweg) - sonst
+// kann bei Spalten, die zufällig auf gleicher Höhe liegen und deshalb zu einer
+// Zeile zusammengefasst wurden, ein Label mit dem Wert der falschen Nachbar-
+// zeile "verschmelzen" (z.B. Label "Bestellnummer" ohne Wert in einer Zeile,
+// Adresse + eigentliche Nummer in der nächsten).
+function findInLines(zeilen, regex) {
+    for (const zeile of zeilen) {
+        const m = zeile.match(regex);
+        if (m) return m;
+    }
+    return null;
+}
+
+// Jede Position beginnt mit einer Zeile "Pos-Nr. [Kennbuchstabe] Lieferdatum Menge ST"
+// (z.B. "00010 T 25.10.2026 100 ST"). Bestellnummer/Belegdatum stehen einmal im
+// Kopf der Bestellung, Auftragsnummer/Artikelnummer/Preis je Position im Text
+// darunter, bis die nächste Position beginnt.
+function parseBestellungsPdf(zeilen) {
+    const bestellnummerMatch = findInLines(zeilen, /Bestellnummer\s+(\d[\w./-]*)/i);
+    const bestellnummer = bestellnummerMatch ? bestellnummerMatch[1] : '';
+    const belegdatumMatch = findInLines(zeilen, /Belegdatum\s+(\d{2}\.\d{2}\.\d{4})/i);
+    const bestelldatum = belegdatumMatch ? belegdatumMatch[1] : '';
+
+    const posZeilenRegex = /^\d{4,6}\s+[A-Za-z]?\s*(\d{2}\.\d{2}\.\d{4})\s+([\d.,]+)\s*ST/;
+    const posIndizes = [];
+    zeilen.forEach((zeile, i) => {
+        if (posZeilenRegex.test(zeile)) posIndizes.push(i);
+    });
+
+    return posIndizes.map((startIdx, idx) => {
+        const endIdx = idx + 1 < posIndizes.length ? posIndizes[idx + 1] : zeilen.length;
+        const blockZeilen = zeilen.slice(startIdx, endIdx);
+
+        const posMatch = zeilen[startIdx].match(posZeilenRegex);
+        const auftragMatch = findInLines(blockZeilen, /Auftragsnummer:?\s*(\d+)/i);
+        const artikelMatch = findInLines(blockZeilen, /#(\d+)/);
+        const preisMatch = findInLines(blockZeilen, /Nettopreis\s+([\d.,]+)\s*EUR\s*\/\s*100\s*ST/i);
+
+        return {
+            artikelnummer: artikelMatch ? artikelMatch[1] : '',
+            auftragsnummer: auftragMatch ? auftragMatch[1] : '',
+            lieferdatum: posMatch ? posMatch[1] : '',
+            menge: posMatch ? posMatch[2] : '',
+            preis: preisMatch ? preisMatch[1] : '',
+            bestellnummer,
+            bestelldatum,
+        };
+    });
+}
+
+document.getElementById('converterPdfFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const note = document.getElementById('converterPdfNote');
+    note.style.color = '#64748b';
+    note.textContent = 'Lese PDF...';
+    try {
+        const zeilen = await extractPdfLines(file);
+        converterPdfData = parseBestellungsPdf(zeilen);
+
+        if (converterPdfData.length === 0) {
+            note.style.color = '#b91c1c';
+            note.textContent = 'Keine Positionen gefunden - das Format dieser PDF weicht evtl. ab.';
+            document.getElementById('converterPdfPreview').classList.add('hidden');
+            return;
+        }
+
+        const tbody = document.getElementById('converterPdfTable');
+        tbody.innerHTML = '';
+        converterPdfData.forEach(d => {
+            const tr = document.createElement('tr');
+            [d.artikelnummer, d.auftragsnummer, d.lieferdatum, d.menge, d.preis, d.bestellnummer, d.bestelldatum].forEach(val => {
+                const td = document.createElement('td');
+                td.textContent = val;
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        document.getElementById('converterPdfPreview').classList.remove('hidden');
+        note.style.color = '#15803d';
+        note.textContent = `✅ ${converterPdfData.length} Position${converterPdfData.length === 1 ? '' : 'en'} gefunden.`;
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Fehler beim Lesen der PDF: ' + err.message;
+    }
+});
+
+function exportConverterPdfExcel() {
+    const data = converterPdfData.map(d => ({
+        'Artikelnummer (#)': d.artikelnummer,
+        'Auftragsnummer': d.auftragsnummer,
+        'Lieferdatum': d.lieferdatum,
+        'Menge': d.menge,
+        'Preis (EUR /100 ST)': d.preis,
+        'Bestellnummer': d.bestellnummer,
+        'Bestelldatum': d.bestelldatum,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bestellung');
+    XLSX.writeFile(wb, 'Bestellung.xlsx');
+}
+document.getElementById('exportConverterPdfBtn')?.addEventListener('click', exportConverterPdfExcel);
 
 document.getElementById('plannerOrders')?.addEventListener('change', async (e) => {
     const rows = await parseExcel(e.target.files[0]);
