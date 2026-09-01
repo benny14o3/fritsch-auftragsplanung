@@ -180,6 +180,22 @@ function findColumn(columns, ...keywords) {
     return columns.find(c => keywords.some(k => norm(c).includes(k)));
 }
 
+// Menge robust parsen - deutsche Zahlen nutzen "." als Tausender- und "," als
+// Dezimaltrennzeichen (z.B. "2.200" = 2200, aus PDF/Excel oft mit Einheit
+// dahinter wie "2.200 ST"). parseInt("2.200") würde fälschlich nur 2 liefern,
+// weil es beim ersten Nicht-Ziffern-Zeichen abbricht - Mengen hier sind immer
+// ganze Stückzahlen, deshalb werden Punkte konsequent als Tausendertrennzeichen
+// behandelt.
+function parseMenge(value) {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number') return Math.round(value);
+    let str = value.toString().trim().replace(/[^\d.,]/g, '');
+    if (!str) return 0;
+    str = str.replace(/\./g, '').replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : Math.round(num);
+}
+
 async function parseDatabaseFile(file, type) {
     const workbook = await readWorkbook(file);
     const sheet = pickDatabaseSheet(workbook, type.toLowerCase());
@@ -292,7 +308,7 @@ document.getElementById('converterFile')?.addEventListener('change', async (e) =
         converterData = rows.map(r => ({
             artikelnummer: (r[artikelCol] || '').toString().replace('#', '').trim(),
             auftragsnummer: (r[auftragsCol] || '').toString().trim(),
-            menge: parseInt(r[mengeCol]) || 0,
+            menge: parseMenge(r[mengeCol]),
             lieferdatum: r[datumCol] || '',
         })).filter(d => d.artikelnummer && d.menge > 0);
 
@@ -401,7 +417,7 @@ function parseBestellungsPdf(zeilen) {
             artikelnummer: artikelMatch ? artikelMatch[1] : '',
             auftragsnummer: auftragMatch ? auftragMatch[1] : '',
             lieferdatum: posMatch ? posMatch[1] : '',
-            menge: posMatch ? posMatch[2] : '',
+            menge: posMatch ? parseMenge(posMatch[2]) : 0,
             preis: preisMatch ? preisMatch[1] : '',
             bestellnummer,
             bestelldatum,
@@ -983,7 +999,7 @@ function planMachines(orders) {
             artikelnummer: artikelNr,
             beschreibung: artikel?.bezeichnung || '',
             komponenten,
-            menge: parseInt(o[mengeCol]) || 0,
+            menge: parseMenge(o[mengeCol]),
             dbType,
             maschinenNamen: dbType === 'Elastomer'
                 ? (classifyElastomerSubtyp(artikel?.maschine) ? [classifyElastomerSubtyp(artikel?.maschine)] : [])
@@ -1782,7 +1798,7 @@ async function handleManualAddOrder() {
     const note = document.getElementById('manualAddNote');
     const auftragsnummer = document.getElementById('manualAuftragsnummer').value.trim();
     const artikelnummer = document.getElementById('manualArtikelnummer').value.trim();
-    const menge = parseInt(document.getElementById('manualMenge').value) || 0;
+    const menge = parseMenge(document.getElementById('manualMenge').value);
     const bestellnummer = document.getElementById('manualBestellnummer').value.trim();
     const lieferdatumStr = document.getElementById('manualLieferdatum').value;
 
