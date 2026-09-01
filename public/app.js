@@ -1750,7 +1750,9 @@ function renderGantt(orders, dbType) {
 
     grid.innerHTML = '';
     grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, 150px)`;
-    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 78px)`;
+    // 100px pro Tag, damit auch ein 1-Tages-Balken mit allen vier Zeilen
+    // (Artikel, Auftrag, Bezeichnung über 2 Zeilen, Lieferwoche) Platz hat.
+    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 100px)`;
 
     const ecke = document.createElement('div');
     ecke.className = 'gantt-corner';
@@ -1831,15 +1833,15 @@ function renderGantt(orders, dbType) {
             const lieferwoche = formatLieferwoche(o.lieferdatum);
             // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
             const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
-            // Artikelnummer, Auftragsnummer und Bezeichnung als eigene Zeilen/Zellen -
-            // nicht mehr zusammengedrängt, damit die Bezeichnung lesbar bleibt. Die
-            // Lieferwoche wird in die Auftrags-Zeile eingehängt statt eine eigene
-            // Zeile zu belegen - bei kurzen (1-Tages-)Balken reicht sonst die feste
-            // Zeilenhöhe nicht und die Zeile wird durch overflow:hidden abgeschnitten.
+            // Artikelnummer, Auftragsnummer, Bezeichnung und Lieferwoche als eigene
+            // Zeilen/Zellen - die Tageszeile (siehe GANTT_TAG_HOEHE) ist bewusst hoch
+            // genug bemessen, damit auch bei 1-Tages-Balken alle vier Zeilen Platz
+            // haben und nicht durch overflow:hidden abgeschnitten werden.
             bar.innerHTML = `
                 <div class="gantt-bar-zelle gantt-bar-artikel">${escapeHtml(o.artikelnummer)}</div>
-                <div class="gantt-bar-zelle gantt-bar-auftrag${zuSpaet ? ' spaet' : ''}">Auftrag ${escapeHtml(o.auftragsnummer)}${lieferwoche ? ` · ${zuSpaet ? '⚠ ' : ''}${lieferwoche}` : ''}</div>
+                <div class="gantt-bar-zelle gantt-bar-auftrag">Auftrag ${escapeHtml(o.auftragsnummer)}</div>
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
+                ${lieferwoche ? `<div class="gantt-bar-zelle gantt-bar-lieferwoche${zuSpaet ? ' spaet' : ''}">${zuSpaet ? '⚠ ' : ''}Liefertermin ${lieferwoche}</div>` : ''}
             `;
             bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
