@@ -8,9 +8,8 @@ const helmet = require('helmet');
 const path = require('path');
 
 const authRoutes = require('./routes/auth');
-const dbRoutes = require('./routes/databases');
 const orderRoutes = require('./routes/orders');
-const stuecklisteRoutes = require('./routes/stueckliste');
+const artikelstammRoutes = require('./routes/artikelstamm');
 
 const app = express();
 
@@ -44,9 +43,8 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/databases', dbRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/stueckliste', stuecklisteRoutes);
+app.use('/api/artikelstamm', artikelstammRoutes);
 
 // Frontend
 app.get('/', (req, res) => {

@@ -3,8 +3,13 @@ let token = localStorage.getItem('token');
 let currentUser = null;
 let converterData = [];
 let converterPdfData = [];
-let plannerDBs = { Elastomer: null, PTFE: null };
-let stueckliste = { materialien: [] };
+// Prozessdaten (Maschine/Kavität/...) und Stückliste (Bezeichnung/Komponenten)
+// in einer gemeinsamen Liste statt getrennter Elastomer-/PTFE-/Stückliste-Sammlungen.
+let artikelstamm = { artikel: [] };
+
+function findArtikel(material) {
+    return artikelstamm.artikel.find(a => a.material === material) || null;
+}
 
 if (typeof pdfjsLib !== 'undefined') {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
@@ -39,8 +44,7 @@ async function handleLogin() {
         currentUser = data.user;
         localStorage.setItem('token', token);
         showApp();
-        loadDatabaseStatus();
-        loadStueckliste();
+        loadArtikelstamm();
         loadInviteInfo();
     } catch (err) {
         document.getElementById('authError').textContent = err.message;
@@ -69,8 +73,7 @@ async function handleRegister() {
         currentUser = data.user;
         localStorage.setItem('token', token);
         showApp();
-        loadDatabaseStatus();
-        loadStueckliste();
+        loadArtikelstamm();
         loadInviteInfo();
     } catch (err) {
         document.getElementById('regError').textContent = err.message;
@@ -483,7 +486,7 @@ async function saveDatabase(type, file, statusEl) {
     try {
         const articles = await parseDatabaseFile(file, type);
 
-        const res = await fetch(`${API_URL}/databases/${type}`, {
+        const res = await fetch(`${API_URL}/artikelstamm/upload/${type}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -494,9 +497,7 @@ async function saveDatabase(type, file, statusEl) {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
 
-        // data.articles (nicht das lokal geparste articles) hat die von Mongo
-        // vergebenen _id's - die brauchen die Bearbeiten/Löschen-Aktionen in der Tabelle.
-        plannerDBs[type] = data.articles;
+        artikelstamm = data;
         renderDatabaseTable();
         statusEl.textContent = `✅ ${articles.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
     } catch (err) {
@@ -519,276 +520,55 @@ document.getElementById('dbStueckliste')?.addEventListener('change', async (e) =
     statusEl.textContent = 'Lade hoch...';
     try {
         const materialien = await parseStueckliste(file);
-        const res = await fetch(`${API_URL}/stueckliste`, {
+        const res = await fetch(`${API_URL}/artikelstamm/upload/stueckliste`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ materialien }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        stueckliste = data;
-        renderStuecklisteTable();
+        artikelstamm = data;
+        renderDatabaseTable();
         statusEl.textContent = `✅ ${materialien.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
     } catch (err) {
         statusEl.textContent = '❌ Fehler: ' + err.message;
     }
 });
 
-async function loadStueckliste() {
+async function loadArtikelstamm() {
     try {
-        const res = await fetch(`${API_URL}/stueckliste`, {
+        const res = await fetch(`${API_URL}/artikelstamm`, {
             headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) return;
-        const data = await res.json();
-        stueckliste = data;
-        const statusEl = document.getElementById('stuecklisteStatus');
-        if (statusEl && data.materialien?.length) {
-            statusEl.textContent = `✅ ${data.materialien.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
-        }
-        renderStuecklisteTable();
-    } catch (err) {
-        // Stückliste konnte nicht geladen werden, Status bleibt leer
-    }
-}
+        artikelstamm = await res.json();
 
-async function loadDatabaseStatus() {
-    try {
-        const res = await fetch(`${API_URL}/databases`, {
-            headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (!res.ok) return;
-        const databases = await res.json();
-        databases.forEach(db => {
-            plannerDBs[db.type] = db.articles;
-            const statusEl = document.getElementById(db.type === 'Elastomer' ? 'elastomerStatus' : 'ptfeStatus');
-            const text = `✅ ${db.articles.length} Artikel gespeichert (${new Date(db.lastUpdated).toLocaleString('de-DE')})`;
-            if (statusEl) statusEl.textContent = text;
-        });
+        const elastomerCount = artikelstamm.artikel.filter(a => a.dbType === 'Elastomer').length;
+        const ptfeCount = artikelstamm.artikel.filter(a => a.dbType === 'PTFE').length;
+        const komponentenCount = artikelstamm.artikel.filter(a => a.komponenten?.length > 0).length;
+        const zeit = artikelstamm.lastUpdated ? new Date(artikelstamm.lastUpdated).toLocaleString('de-DE') : '';
+
+        const elastomerStatusEl = document.getElementById('elastomerStatus');
+        if (elastomerStatusEl && elastomerCount > 0) elastomerStatusEl.textContent = `✅ ${elastomerCount} Artikel gespeichert (${zeit})`;
+        const ptfeStatusEl = document.getElementById('ptfeStatus');
+        if (ptfeStatusEl && ptfeCount > 0) ptfeStatusEl.textContent = `✅ ${ptfeCount} Artikel gespeichert (${zeit})`;
+        const stuecklisteStatusEl = document.getElementById('stuecklisteStatus');
+        if (stuecklisteStatusEl && komponentenCount > 0) stuecklisteStatusEl.textContent = `✅ ${komponentenCount} Artikel gespeichert (${zeit})`;
+
         renderDatabaseTable();
     } catch (err) {
-        // Datenbanken konnten nicht geladen werden, Status bleibt leer
+        // Artikelstamm konnte nicht geladen werden, Status bleibt leer
     }
 }
 
 // Einzelne Artikel direkt in der Weboberfläche pflegen, ohne jedes Mal die
-// ganze Excel neu hochladen zu müssen. Elastomer und PTFE in einer gemeinsamen
-// Tabelle (mit Typ-Spalte) statt zwei getrennten - bleiben aber weiterhin zwei
-// getrennte Datenbanken/Uploads im Hintergrund. Nur ein Artikel gleichzeitig editierbar.
-let editingArticle = { type: null, id: null };
+// ganze Excel neu hochladen zu müssen. Prozessdaten (Typ/Maschine/Kavität/...)
+// und Komponenten (Stückliste) sind jetzt EIN Artikelstamm statt getrennter
+// Datenbank-/Stückliste-Sammlungen - eine Tabelle, ein Eintrag pro Artikel.
+// Nur ein Artikel gleichzeitig editierbar. Komponenten-Textfeld: eine Zeile
+// pro Komponente im Format "Artikelnummer | Bezeichnung | Menge".
+let editingArticleMaterial = null;
 
-function renderDatabaseTable() {
-    const tbody = document.getElementById('databaseArticleTable');
-    if (!tbody) return;
-
-    const filterVal = (document.getElementById('databaseFilter')?.value || '').toLowerCase().trim();
-    const alle = [
-        ...(plannerDBs.Elastomer || []).map(a => ({ ...a, _type: 'Elastomer' })),
-        ...(plannerDBs.PTFE || []).map(a => ({ ...a, _type: 'PTFE' })),
-    ];
-    const filtered = filterVal
-        ? alle.filter(a => (a.material || '').toLowerCase().includes(filterVal) || (a.beschreibung || '').toLowerCase().includes(filterVal))
-        : alle;
-
-    tbody.innerHTML = '';
-    filtered.forEach(article => {
-        const type = article._type;
-        const isEditing = editingArticle.type === type && editingArticle.id === article._id;
-        const tr = document.createElement('tr');
-        const actionsTd = document.createElement('td');
-        actionsTd.className = 'table-actions';
-
-        if (!isEditing) {
-            [type, article.material, article.beschreibung, article.maschine, article.kavitaet ?? '', article.rundenProSchicht ?? '', article.zeitProHundert ?? ''].forEach(val => {
-                const td = document.createElement('td');
-                td.textContent = val;
-                tr.appendChild(td);
-            });
-
-            const editBtn = document.createElement('button');
-            editBtn.textContent = '✏️';
-            editBtn.title = 'Bearbeiten';
-            editBtn.addEventListener('click', () => {
-                editingArticle = { type, id: article._id };
-                renderDatabaseTable();
-            });
-
-            const delBtn = document.createElement('button');
-            delBtn.className = 'danger';
-            delBtn.textContent = '🗑';
-            delBtn.title = 'Löschen';
-            let confirming = false;
-            let resetTimer = null;
-            delBtn.addEventListener('click', () => {
-                if (!confirming) {
-                    confirming = true;
-                    delBtn.textContent = 'Sicher?';
-                    resetTimer = setTimeout(() => {
-                        confirming = false;
-                        delBtn.textContent = '🗑';
-                    }, 4000);
-                    return;
-                }
-                clearTimeout(resetTimer);
-                deleteDatabaseArticle(type, article._id);
-            });
-
-            actionsTd.appendChild(editBtn);
-            actionsTd.appendChild(delBtn);
-        } else {
-            const typTd = document.createElement('td');
-            typTd.textContent = type;
-            tr.appendChild(typTd);
-
-            const fields = [
-                { key: 'material', value: article.material, inputType: 'text' },
-                { key: 'beschreibung', value: article.beschreibung, inputType: 'text' },
-                { key: 'maschine', value: article.maschine, inputType: 'text' },
-                { key: 'kavitaet', value: article.kavitaet ?? '', inputType: 'number' },
-                { key: 'rundenProSchicht', value: article.rundenProSchicht ?? '', inputType: 'number' },
-                { key: 'zeitProHundert', value: article.zeitProHundert ?? '', inputType: 'number' },
-            ];
-            const inputs = {};
-            fields.forEach(f => {
-                const td = document.createElement('td');
-                const input = document.createElement('input');
-                input.className = 'table-input';
-                input.type = f.inputType;
-                input.value = f.value;
-                td.appendChild(input);
-                tr.appendChild(td);
-                inputs[f.key] = input;
-            });
-
-            const saveBtn = document.createElement('button');
-            saveBtn.className = 'primary';
-            saveBtn.textContent = '💾';
-            saveBtn.title = 'Speichern';
-            saveBtn.addEventListener('click', () => {
-                saveEditArticle(type, article._id, {
-                    material: inputs.material.value.trim(),
-                    beschreibung: inputs.beschreibung.value.trim(),
-                    maschine: inputs.maschine.value.trim(),
-                    kavitaet: inputs.kavitaet.value ? Number(inputs.kavitaet.value) : undefined,
-                    rundenProSchicht: inputs.rundenProSchicht.value ? Number(inputs.rundenProSchicht.value) : undefined,
-                    zeitProHundert: inputs.zeitProHundert.value ? Number(inputs.zeitProHundert.value) : undefined,
-                });
-            });
-
-            const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = '✕';
-            cancelBtn.title = 'Abbrechen';
-            cancelBtn.addEventListener('click', () => {
-                editingArticle = { type: null, id: null };
-                renderDatabaseTable();
-            });
-
-            actionsTd.appendChild(saveBtn);
-            actionsTd.appendChild(cancelBtn);
-        }
-
-        tr.appendChild(actionsTd);
-        tbody.appendChild(tr);
-    });
-}
-
-async function addDatabaseArticle() {
-    const note = document.getElementById('databaseArticleNote');
-    const type = document.getElementById('databaseNewType').value;
-    const material = document.getElementById('databaseNewMaterial').value.trim();
-    const beschreibung = document.getElementById('databaseNewBeschreibung').value.trim();
-    const maschine = document.getElementById('databaseNewMaschine').value.trim();
-    const kavitaetStr = document.getElementById('databaseNewKavitaet').value;
-    const rundenStr = document.getElementById('databaseNewRunden').value;
-    const zeitStr = document.getElementById('databaseNewZeit').value;
-
-    note.style.color = '#b91c1c';
-    if (!material) {
-        note.textContent = 'Bitte Artikelnummer angeben.';
-        return;
-    }
-
-    try {
-        const res = await fetch(`${API_URL}/databases/${type}/articles`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({
-                material,
-                beschreibung,
-                maschine,
-                kavitaet: kavitaetStr ? Number(kavitaetStr) : undefined,
-                rundenProSchicht: rundenStr ? Number(rundenStr) : undefined,
-                zeitProHundert: zeitStr ? Number(zeitStr) : undefined,
-            }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-            note.textContent = data.error || 'Anlegen fehlgeschlagen.';
-            return;
-        }
-        plannerDBs[type] = [...(plannerDBs[type] || []), data];
-        renderDatabaseTable();
-        note.style.color = '#15803d';
-        note.textContent = `✅ Artikel ${material} (${type}) hinzugefügt.`;
-        ['NewMaterial', 'NewBeschreibung', 'NewMaschine', 'NewKavitaet', 'NewRunden', 'NewZeit'].forEach(id => {
-            const el = document.getElementById(`database${id}`);
-            if (el) el.value = '';
-        });
-    } catch (err) {
-        note.textContent = 'Anlegen fehlgeschlagen. Bitte erneut versuchen.';
-    }
-}
-
-async function saveEditArticle(type, articleId, updates) {
-    const note = document.getElementById('databaseArticleNote');
-    try {
-        const res = await fetch(`${API_URL}/databases/${type}/articles/${articleId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(updates),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-            note.style.color = '#b91c1c';
-            note.textContent = data.error || 'Speichern fehlgeschlagen.';
-            return;
-        }
-        const list = plannerDBs[type] || [];
-        const idx = list.findIndex(a => a._id === articleId);
-        if (idx !== -1) list[idx] = data;
-        editingArticle = { type: null, id: null };
-        renderDatabaseTable();
-        note.style.color = '#15803d';
-        note.textContent = '✅ Artikel gespeichert.';
-    } catch (err) {
-        note.style.color = '#b91c1c';
-        note.textContent = 'Speichern fehlgeschlagen. Bitte erneut versuchen.';
-    }
-}
-
-async function deleteDatabaseArticle(type, articleId) {
-    const note = document.getElementById('databaseArticleNote');
-    try {
-        const res = await fetch(`${API_URL}/databases/${type}/articles/${articleId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error();
-        plannerDBs[type] = (plannerDBs[type] || []).filter(a => a._id !== articleId);
-        renderDatabaseTable();
-        note.style.color = '#15803d';
-        note.textContent = 'Artikel gelöscht.';
-    } catch (err) {
-        note.style.color = '#b91c1c';
-        note.textContent = 'Löschen fehlgeschlagen. Bitte erneut versuchen.';
-    }
-}
-
-document.getElementById('databaseAddArticleBtn')?.addEventListener('click', addDatabaseArticle);
-document.getElementById('databaseFilter')?.addEventListener('input', renderDatabaseTable);
-
-// Stückliste (BOM) direkt in der Weboberfläche pflegen - jede Zeile im
-// Komponenten-Textfeld ist "Artikelnummer | Bezeichnung | Menge".
 function parseKomponentenText(text) {
     return (text || '')
         .split('\n')
@@ -804,44 +584,40 @@ function formatKomponentenText(komponenten) {
     return (komponenten || []).map(k => `${k.artikelnummer} | ${k.bezeichnung} | ${k.menge}`).join('\n');
 }
 
-let editingMaterial = null;
-
-function renderStuecklisteTable() {
-    const tbody = document.getElementById('stuecklisteArticleTable');
+function renderDatabaseTable() {
+    const tbody = document.getElementById('databaseArticleTable');
     if (!tbody) return;
 
-    const filterEl = document.getElementById('stuecklisteFilter');
-    const filterVal = (filterEl?.value || '').toLowerCase().trim();
-    const materialien = stueckliste.materialien || [];
+    const filterVal = (document.getElementById('databaseFilter')?.value || '').toLowerCase().trim();
+    const alle = artikelstamm.artikel || [];
     const filtered = filterVal
-        ? materialien.filter(m => (m.material || '').toLowerCase().includes(filterVal) || (m.bezeichnung || '').toLowerCase().includes(filterVal))
-        : materialien;
+        ? alle.filter(a => (a.material || '').toLowerCase().includes(filterVal) || (a.bezeichnung || '').toLowerCase().includes(filterVal))
+        : alle;
 
     tbody.innerHTML = '';
-    filtered.forEach(m => {
-        const isEditing = editingMaterial === m.material;
+    filtered.forEach(article => {
+        const isEditing = editingArticleMaterial === article.material;
         const tr = document.createElement('tr');
         const actionsTd = document.createElement('td');
         actionsTd.className = 'table-actions';
 
         if (!isEditing) {
-            const materialTd = document.createElement('td');
-            materialTd.textContent = m.material;
-            const bezTd = document.createElement('td');
-            bezTd.textContent = m.bezeichnung;
+            [article.dbType || '–', article.material, article.bezeichnung, article.maschine, article.kavitaet || '', article.rundenProSchicht || '', article.zeitProHundert || ''].forEach(val => {
+                const td = document.createElement('td');
+                td.textContent = val;
+                tr.appendChild(td);
+            });
             const kompTd = document.createElement('td');
             kompTd.style.whiteSpace = 'pre-line';
-            kompTd.textContent = (m.komponenten || []).map(k => `${k.artikelnummer ? k.artikelnummer + ' - ' : ''}${k.bezeichnung}`).join('\n') || '–';
-            tr.appendChild(materialTd);
-            tr.appendChild(bezTd);
+            kompTd.textContent = (article.komponenten || []).map(k => `${k.artikelnummer ? k.artikelnummer + ' - ' : ''}${k.bezeichnung}`).join('\n') || '–';
             tr.appendChild(kompTd);
 
             const editBtn = document.createElement('button');
             editBtn.textContent = '✏️';
             editBtn.title = 'Bearbeiten';
             editBtn.addEventListener('click', () => {
-                editingMaterial = m.material;
-                renderStuecklisteTable();
+                editingArticleMaterial = article.material;
+                renderDatabaseTable();
             });
 
             const delBtn = document.createElement('button');
@@ -861,35 +637,51 @@ function renderStuecklisteTable() {
                     return;
                 }
                 clearTimeout(resetTimer);
-                deleteStücklisteMaterial(m.material);
+                deleteDatabaseArticle(article.material);
             });
 
             actionsTd.appendChild(editBtn);
             actionsTd.appendChild(delBtn);
         } else {
-            const materialTd = document.createElement('td');
-            const materialInput = document.createElement('input');
-            materialInput.className = 'table-input';
-            materialInput.type = 'text';
-            materialInput.value = m.material;
-            materialTd.appendChild(materialInput);
+            const typTd = document.createElement('td');
+            const typSelect = document.createElement('select');
+            typSelect.className = 'table-input';
+            ['', 'Elastomer', 'PTFE'].forEach(opt => {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt;
+                optionEl.textContent = opt || '–';
+                if ((article.dbType || '') === opt) optionEl.selected = true;
+                typSelect.appendChild(optionEl);
+            });
+            typTd.appendChild(typSelect);
+            tr.appendChild(typTd);
 
-            const bezTd = document.createElement('td');
-            const bezInput = document.createElement('input');
-            bezInput.className = 'table-input';
-            bezInput.type = 'text';
-            bezInput.value = m.bezeichnung;
-            bezTd.appendChild(bezInput);
+            const fields = [
+                { key: 'material', value: article.material, inputType: 'text' },
+                { key: 'bezeichnung', value: article.bezeichnung, inputType: 'text' },
+                { key: 'maschine', value: article.maschine, inputType: 'text' },
+                { key: 'kavitaet', value: article.kavitaet || '', inputType: 'number' },
+                { key: 'rundenProSchicht', value: article.rundenProSchicht || '', inputType: 'number' },
+                { key: 'zeitProHundert', value: article.zeitProHundert || '', inputType: 'number' },
+            ];
+            const inputs = {};
+            fields.forEach(f => {
+                const td = document.createElement('td');
+                const input = document.createElement('input');
+                input.className = 'table-input';
+                input.type = f.inputType;
+                input.value = f.value;
+                td.appendChild(input);
+                tr.appendChild(td);
+                inputs[f.key] = input;
+            });
 
             const kompTd = document.createElement('td');
             const kompTextarea = document.createElement('textarea');
             kompTextarea.className = 'table-input';
-            kompTextarea.rows = Math.max(2, (m.komponenten || []).length);
-            kompTextarea.value = formatKomponentenText(m.komponenten);
+            kompTextarea.rows = Math.max(2, (article.komponenten || []).length);
+            kompTextarea.value = formatKomponentenText(article.komponenten);
             kompTd.appendChild(kompTextarea);
-
-            tr.appendChild(materialTd);
-            tr.appendChild(bezTd);
             tr.appendChild(kompTd);
 
             const saveBtn = document.createElement('button');
@@ -897,9 +689,14 @@ function renderStuecklisteTable() {
             saveBtn.textContent = '💾';
             saveBtn.title = 'Speichern';
             saveBtn.addEventListener('click', () => {
-                saveEditMaterial(m.material, {
-                    material: materialInput.value.trim(),
-                    bezeichnung: bezInput.value.trim(),
+                saveEditArticle(article.material, {
+                    material: inputs.material.value.trim(),
+                    bezeichnung: inputs.bezeichnung.value.trim(),
+                    dbType: typSelect.value || null,
+                    maschine: inputs.maschine.value.trim(),
+                    kavitaet: inputs.kavitaet.value ? Number(inputs.kavitaet.value) : 0,
+                    rundenProSchicht: inputs.rundenProSchicht.value ? Number(inputs.rundenProSchicht.value) : 0,
+                    zeitProHundert: inputs.zeitProHundert.value ? Number(inputs.zeitProHundert.value) : 0,
                     komponenten: parseKomponentenText(kompTextarea.value),
                 });
             });
@@ -908,8 +705,8 @@ function renderStuecklisteTable() {
             cancelBtn.textContent = '✕';
             cancelBtn.title = 'Abbrechen';
             cancelBtn.addEventListener('click', () => {
-                editingMaterial = null;
-                renderStuecklisteTable();
+                editingArticleMaterial = null;
+                renderDatabaseTable();
             });
 
             actionsTd.appendChild(saveBtn);
@@ -921,11 +718,16 @@ function renderStuecklisteTable() {
     });
 }
 
-async function addStücklisteMaterial() {
-    const note = document.getElementById('stuecklisteArticleNote');
-    const material = document.getElementById('stuecklisteNewMaterial').value.trim();
-    const bezeichnung = document.getElementById('stuecklisteNewBezeichnung').value.trim();
-    const komponenten = parseKomponentenText(document.getElementById('stuecklisteNewKomponenten').value);
+async function addDatabaseArticle() {
+    const note = document.getElementById('databaseArticleNote');
+    const dbType = document.getElementById('databaseNewType').value || null;
+    const material = document.getElementById('databaseNewMaterial').value.trim();
+    const bezeichnung = document.getElementById('databaseNewBeschreibung').value.trim();
+    const maschine = document.getElementById('databaseNewMaschine').value.trim();
+    const kavitaetStr = document.getElementById('databaseNewKavitaet').value;
+    const rundenStr = document.getElementById('databaseNewRunden').value;
+    const zeitStr = document.getElementById('databaseNewZeit').value;
+    const komponenten = parseKomponentenText(document.getElementById('databaseNewKomponenten').value);
 
     note.style.color = '#b91c1c';
     if (!material) {
@@ -934,32 +736,43 @@ async function addStücklisteMaterial() {
     }
 
     try {
-        const res = await fetch(`${API_URL}/stueckliste/materialien`, {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ material, bezeichnung, komponenten }),
+            body: JSON.stringify({
+                material,
+                bezeichnung,
+                dbType,
+                maschine,
+                kavitaet: kavitaetStr ? Number(kavitaetStr) : 0,
+                rundenProSchicht: rundenStr ? Number(rundenStr) : 0,
+                zeitProHundert: zeitStr ? Number(zeitStr) : 0,
+                komponenten,
+            }),
         });
         const data = await res.json();
         if (!res.ok) {
             note.textContent = data.error || 'Anlegen fehlgeschlagen.';
             return;
         }
-        stueckliste.materialien = [...(stueckliste.materialien || []), data];
-        renderStuecklisteTable();
+        const idx = artikelstamm.artikel.findIndex(a => a.material === material);
+        if (idx !== -1) artikelstamm.artikel[idx] = data; else artikelstamm.artikel.push(data);
+        renderDatabaseTable();
         note.style.color = '#15803d';
-        note.textContent = `✅ Artikel ${material} hinzugefügt.`;
-        document.getElementById('stuecklisteNewMaterial').value = '';
-        document.getElementById('stuecklisteNewBezeichnung').value = '';
-        document.getElementById('stuecklisteNewKomponenten').value = '';
+        note.textContent = `✅ Artikel ${material} gespeichert.`;
+        ['NewMaterial', 'NewBeschreibung', 'NewMaschine', 'NewKavitaet', 'NewRunden', 'NewZeit', 'NewKomponenten'].forEach(id => {
+            const el = document.getElementById(`database${id}`);
+            if (el) el.value = '';
+        });
     } catch (err) {
         note.textContent = 'Anlegen fehlgeschlagen. Bitte erneut versuchen.';
     }
 }
 
-async function saveEditMaterial(material, updates) {
-    const note = document.getElementById('stuecklisteArticleNote');
+async function saveEditArticle(material, updates) {
+    const note = document.getElementById('databaseArticleNote');
     try {
-        const res = await fetch(`${API_URL}/stueckliste/materialien/${encodeURIComponent(material)}`, {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(material)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify(updates),
@@ -970,10 +783,10 @@ async function saveEditMaterial(material, updates) {
             note.textContent = data.error || 'Speichern fehlgeschlagen.';
             return;
         }
-        const idx = (stueckliste.materialien || []).findIndex(m => m.material === material);
-        if (idx !== -1) stueckliste.materialien[idx] = data;
-        editingMaterial = null;
-        renderStuecklisteTable();
+        const idx = artikelstamm.artikel.findIndex(a => a.material === material);
+        if (idx !== -1) artikelstamm.artikel[idx] = data;
+        editingArticleMaterial = null;
+        renderDatabaseTable();
         note.style.color = '#15803d';
         note.textContent = '✅ Artikel gespeichert.';
     } catch (err) {
@@ -982,16 +795,16 @@ async function saveEditMaterial(material, updates) {
     }
 }
 
-async function deleteStücklisteMaterial(material) {
-    const note = document.getElementById('stuecklisteArticleNote');
+async function deleteDatabaseArticle(material) {
+    const note = document.getElementById('databaseArticleNote');
     try {
-        const res = await fetch(`${API_URL}/stueckliste/materialien/${encodeURIComponent(material)}`, {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(material)}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!res.ok) throw new Error();
-        stueckliste.materialien = (stueckliste.materialien || []).filter(m => m.material !== material);
-        renderStuecklisteTable();
+        artikelstamm.artikel = artikelstamm.artikel.filter(a => a.material !== material);
+        renderDatabaseTable();
         note.style.color = '#15803d';
         note.textContent = 'Artikel gelöscht.';
     } catch (err) {
@@ -1000,8 +813,8 @@ async function deleteStücklisteMaterial(material) {
     }
 }
 
-document.getElementById('stuecklisteAddBtn')?.addEventListener('click', addStücklisteMaterial);
-document.getElementById('stuecklisteFilter')?.addEventListener('input', renderStuecklisteTable);
+document.getElementById('databaseAddArticleBtn')?.addEventListener('click', addDatabaseArticle);
+document.getElementById('databaseFilter')?.addEventListener('input', renderDatabaseTable);
 
 function escapeHtml(str) {
     const div = document.createElement('div');
@@ -1149,21 +962,10 @@ function planMachines(orders) {
 
     const parsed = orders.map(o => {
         const artikelNr = (o[artikelCol] || '').toString().replace('#', '').trim();
-        let match = plannerDBs.Elastomer?.find(a => a.material === artikelNr);
-        let dbType = 'Elastomer';
+        const artikel = findArtikel(artikelNr);
+        const dbType = artikel?.dbType || 'Elastomer';
 
-        if (!match) {
-            const ptfeMatch = plannerDBs.PTFE?.find(a => a.material === artikelNr);
-            if (ptfeMatch) {
-                match = ptfeMatch;
-                dbType = 'PTFE';
-            }
-        }
-
-        // Stückliste (SAP-BI) liefert die verbindliche Bezeichnung und die
-        // Komponenten, die für diesen Artikel produziert werden müssen.
-        const bomMatch = stueckliste.materialien.find(m => m.material === artikelNr);
-        const komponenten = (bomMatch?.komponenten || []).map(k => ({
+        const komponenten = (artikel?.komponenten || []).map(k => ({
             artikelnummer: k.artikelnummer,
             bezeichnung: k.bezeichnung,
             wareneingang: null,
@@ -1179,16 +981,16 @@ function planMachines(orders) {
             bestellnummer: (o[bestellCol] || '').toString().trim(),
             lieferdatum: parseExcelDatum(o[lieferdatumCol]),
             artikelnummer: artikelNr,
-            beschreibung: bomMatch?.bezeichnung || match?.beschreibung || '',
+            beschreibung: artikel?.bezeichnung || '',
             komponenten,
             menge: parseInt(o[mengeCol]) || 0,
             dbType,
             maschinenNamen: dbType === 'Elastomer'
-                ? (classifyElastomerSubtyp(match?.maschine) ? [classifyElastomerSubtyp(match?.maschine)] : [])
-                : classifyPtfeMaschinen(match?.maschine),
-            kavitaet: match?.kavitaet || 1,
-            rundenProSchicht: match?.rundenProSchicht || 1,
-            zeitProHundert: match?.zeitProHundert || 0,
+                ? (classifyElastomerSubtyp(artikel?.maschine) ? [classifyElastomerSubtyp(artikel?.maschine)] : [])
+                : classifyPtfeMaschinen(artikel?.maschine),
+            kavitaet: artikel?.kavitaet || 1,
+            rundenProSchicht: artikel?.rundenProSchicht || 1,
+            zeitProHundert: artikel?.zeitProHundert || 0,
         };
     });
 
@@ -1989,18 +1791,10 @@ async function handleManualAddOrder() {
         return;
     }
 
-    let match = plannerDBs.Elastomer?.find(a => a.material === artikelnummer);
-    let dbType = 'Elastomer';
-    if (!match) {
-        const ptfeMatch = plannerDBs.PTFE?.find(a => a.material === artikelnummer);
-        if (ptfeMatch) {
-            match = ptfeMatch;
-            dbType = 'PTFE';
-        }
-    }
+    const artikel = findArtikel(artikelnummer);
+    const dbType = artikel?.dbType || 'Elastomer';
 
-    const bomMatch = stueckliste.materialien.find(m => m.material === artikelnummer);
-    const komponenten = (bomMatch?.komponenten || []).map(k => ({
+    const komponenten = (artikel?.komponenten || []).map(k => ({
         artikelnummer: k.artikelnummer,
         bezeichnung: k.bezeichnung,
         wareneingang: null,
@@ -2010,12 +1804,12 @@ async function handleManualAddOrder() {
     }
 
     const maschinenNamen = dbType === 'Elastomer'
-        ? (classifyElastomerSubtyp(match?.maschine) ? [classifyElastomerSubtyp(match?.maschine)] : [])
-        : classifyPtfeMaschinen(match?.maschine);
+        ? (classifyElastomerSubtyp(artikel?.maschine) ? [classifyElastomerSubtyp(artikel?.maschine)] : [])
+        : classifyPtfeMaschinen(artikel?.maschine);
 
-    const kavitaet = match?.kavitaet || 1;
-    const rundenProSchicht = match?.rundenProSchicht || 1;
-    const zeitProHundert = match?.zeitProHundert || 0;
+    const kavitaet = artikel?.kavitaet || 1;
+    const rundenProSchicht = artikel?.rundenProSchicht || 1;
+    const zeitProHundert = artikel?.zeitProHundert || 0;
 
     const bearbeitungsMin = dbType === 'PTFE'
         ? (menge / 100) * zeitProHundert
@@ -2064,7 +1858,7 @@ async function handleManualAddOrder() {
         bestellnummer,
         lieferdatum: lieferdatumStr ? new Date(lieferdatumStr).toISOString() : null,
         artikelnummer,
-        beschreibung: bomMatch?.bezeichnung || match?.beschreibung || '',
+        beschreibung: artikel?.bezeichnung || '',
         komponenten,
         menge,
         dbType,
@@ -2247,8 +2041,7 @@ async function initSession() {
         if (!res.ok) throw new Error('Sitzung abgelaufen');
         currentUser = await res.json();
         showApp();
-        loadDatabaseStatus();
-        loadStueckliste();
+        loadArtikelstamm();
         loadInviteInfo();
     } catch (err) {
         localStorage.removeItem('token');
