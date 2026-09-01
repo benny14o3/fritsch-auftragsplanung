@@ -100,6 +100,17 @@ router.get('/orders', shopfloorAuthMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Alle Aufträge eines Artikels über alle Phasen hinweg - für den FSK-Historie-
+// Export direkt am Shopfloor-Bildschirm (nicht nur die aktuell laufenden).
+router.get('/artikel/:material/auftraege', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const orders = await Order.find({ artikelnummer: req.params.material })
+      .select('auftragsnummer bestellnummer startDatum endDatum phase status fehlersammelkarte massungen erstfreigabe laufzettel createdAt')
+      .sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
   try {
     const order = await Order.findById(req.params.orderId);

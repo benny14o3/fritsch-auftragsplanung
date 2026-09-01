@@ -6,6 +6,7 @@
     <title>Formteile Fritsch - Auftragsplaner</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto; background: linear-gradient(to bottom right, #f8fafc, #f1f5f9); min-height: 100vh; color: #0f172a; }
@@ -654,9 +655,19 @@
 
         <button class="btn btn-primary" id="articleDetailSaveBtn">Speichern</button>
         <p id="articleDetailNote" style="margin-top: 12px; font-size: 13px;"></p>
+
+        <div class="modal-section" style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-top: 24px; margin-bottom: 0;">
+            <h4>Export</h4>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-secondary" id="articleDetailArtikelmappeBtn" style="width: auto;">📁 Artikelmappe (PDF)</button>
+                <button class="btn btn-secondary" id="articleDetailFskHistorieBtn" style="width: auto;">📊 FSK-Historie (Excel)</button>
+            </div>
+            <p id="articleDetailExportNote" style="margin-top: 10px; font-size: 13px;"></p>
+        </div>
     </div>
 </div>
 
+<script src="export.js"></script>
 <script src="app.js"></script>
 
 </body>

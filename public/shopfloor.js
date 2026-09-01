@@ -508,6 +508,44 @@ async function removeFehler(entryId) {
     } catch (err) { /* ignore */ }
 }
 
+// --- Export (Artikelmappe + FSK-Historie) ---
+
+document.getElementById('artikelmappeBtn')?.addEventListener('click', async () => {
+    const note = document.getElementById('exportNote');
+    const { order, zeichnung, einstelldatenblatt, plp } = currentDetail;
+    note.style.color = '#64748b';
+    note.textContent = 'Erzeuge PDF...';
+    try {
+        await exportArtikelmappe({
+            material: order.artikelnummer, bezeichnung: order.beschreibung, dbType: order.dbType,
+            maschine: '', kavitaet: null, zeichnung, einstelldatenblatt, plp,
+        });
+        note.style.color = '#15803d';
+        note.textContent = '✅ Artikelmappe heruntergeladen.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Export fehlgeschlagen.';
+    }
+});
+
+document.getElementById('fskHistorieBtn')?.addEventListener('click', async () => {
+    const note = document.getElementById('exportNote');
+    const { order } = currentDetail;
+    note.style.color = '#64748b';
+    note.textContent = 'Lade Auftragshistorie...';
+    try {
+        const res = await fetch(`${API_URL}/artikel/${encodeURIComponent(order.artikelnummer)}/auftraege`, { headers: authHeaders() });
+        const auftraege = await res.json();
+        if (!res.ok) throw new Error(auftraege.error);
+        exportFskHistorie(order.artikelnummer, order.beschreibung, auftraege);
+        note.style.color = '#15803d';
+        note.textContent = `✅ Excel heruntergeladen (${auftraege.length} Auftrag${auftraege.length === 1 ? '' : 'e'}).`;
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Export fehlgeschlagen.';
+    }
+});
+
 function handleAuthExpired() {
     localStorage.removeItem('shopfloorToken');
     localStorage.removeItem('shopfloorUser');

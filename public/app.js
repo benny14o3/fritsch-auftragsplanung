@@ -869,6 +869,7 @@ function openArticleDetailModal(material) {
     articleDetailPlpRows = (article.plp || []).map(r => ({ ...r }));
     document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
     document.getElementById('articleDetailNote').textContent = '';
+    document.getElementById('articleDetailExportNote').textContent = '';
     renderArticleDetailDatei('zeichnung', article.zeichnung);
     // Einstelldatenblatt (Spritzguss-Einstellparameter) ergibt nur bei Formgebung Sinn.
     document.getElementById('articleDetailEinstelldatenblattSection').classList.toggle('hidden', article.dbType !== 'Elastomer');
@@ -1133,6 +1134,44 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
     } catch (err) {
         note.style.color = '#b91c1c';
         note.textContent = 'Speichern fehlgeschlagen.';
+    }
+});
+
+document.getElementById('articleDetailArtikelmappeBtn')?.addEventListener('click', async () => {
+    if (!articleDetailMaterial) return;
+    const note = document.getElementById('articleDetailExportNote');
+    const article = artikelstamm.artikel.find(a => a.material === articleDetailMaterial);
+    if (!article) return;
+    note.style.color = '#64748b';
+    note.textContent = 'Erzeuge PDF...';
+    try {
+        await exportArtikelmappe(article);
+        note.style.color = '#15803d';
+        note.textContent = '✅ Artikelmappe heruntergeladen.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Export fehlgeschlagen.';
+    }
+});
+
+document.getElementById('articleDetailFskHistorieBtn')?.addEventListener('click', async () => {
+    if (!articleDetailMaterial) return;
+    const note = document.getElementById('articleDetailExportNote');
+    const article = artikelstamm.artikel.find(a => a.material === articleDetailMaterial);
+    note.style.color = '#64748b';
+    note.textContent = 'Lade Auftragshistorie...';
+    try {
+        const res = await fetch(`${API_URL}/orders?artikelnummer=${encodeURIComponent(articleDetailMaterial)}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const auftraege = await res.json();
+        if (!res.ok) throw new Error(auftraege.error);
+        exportFskHistorie(articleDetailMaterial, article?.bezeichnung || '', auftraege);
+        note.style.color = '#15803d';
+        note.textContent = `✅ Excel heruntergeladen (${auftraege.length} Auftrag${auftraege.length === 1 ? '' : 'e'}).`;
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Export fehlgeschlagen.';
     }
 });
 

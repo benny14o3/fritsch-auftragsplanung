@@ -6,9 +6,12 @@ const adminMiddleware = require('../middleware/admin');
 const router = express.Router();
 
 // Der komplette Plan ist geteilt (eine Firma, ein Board) - kein userId-Filter.
+// Optionaler ?artikelnummer=-Filter für die FSK-Historie (alle Aufträge eines
+// Artikels über alle Phasen hinweg, für den Export in der Artikelverwaltung).
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const orders = await Order.find().sort({ position: 1 });
+    const filter = req.query.artikelnummer ? { artikelnummer: req.query.artikelnummer } : {};
+    const orders = await Order.find(filter).sort({ position: 1 });
     res.json(orders);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
