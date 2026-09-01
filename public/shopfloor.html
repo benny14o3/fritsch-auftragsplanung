@@ -84,6 +84,32 @@
         .fehler-log-row button { border: none; background: none; color: #b91c1c; font-size: 16px; cursor: pointer; }
         .fehler-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
         .fehler-summary span { background: #f1f5f9; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+
+        .komponente-info-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; padding: 8px 4px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+        .komponente-info-row:last-child { border-bottom: none; }
+        .komponente-info-name { flex: 1; min-width: 160px; font-weight: 600; }
+        .komponente-info-charge { color: #475569; }
+        .komponente-info-charge b { color: #0f172a; }
+
+        .locked-note { color: #94a3b8; font-size: 13px; text-align: center; padding: 20px 12px; background: #f8fafc; border-radius: 8px; }
+
+        .erstfreigabe-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+        .pruefpunkt-row { padding: 12px 4px; border-bottom: 1px solid #f1f5f9; }
+        .pruefpunkt-row:last-child { border-bottom: none; }
+        .pruefpunkt-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; }
+        .pruefpunkt-name { font-weight: 700; font-size: 14px; }
+        .pruefpunkt-soll { font-size: 11px; color: #94a3b8; }
+        .pruefpunkt-eingabe { display: flex; gap: 8px; align-items: center; }
+        .pruefpunkt-eingabe input { flex: 1; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 15px; }
+        .pruefpunkt-eingabe button { padding: 10px 14px; background: #16a34a; color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .io-badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+        .io-badge.ok { background: #f0fdf4; color: #15803d; }
+        .io-badge.nok { background: #fef2f2; color: #b91c1c; }
+        .massung-log { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 140px; overflow-y: auto; }
+        .massung-log-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 5px 8px; background: #f8fafc; border-radius: 6px; }
+        .massung-log-row button { border: none; background: none; color: #b91c1c; font-size: 15px; cursor: pointer; }
+        .erstfreigabe-submit { width: 100%; margin-top: 14px; }
+        .erstfreigabe-submit:disabled { background: #cbd5e1; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -140,8 +166,18 @@
             </div>
 
             <div class="card">
+                <h3>Komponenten</h3>
+                <div id="komponentenBox"></div>
+            </div>
+
+            <div class="card">
                 <h3>Produktionslenkungsplan</h3>
                 <div id="plpBox"></div>
+            </div>
+
+            <div id="erstfreigabeCard" class="card hidden">
+                <h3>Erstfreigabe</h3>
+                <div id="erstfreigabeBox"></div>
             </div>
 
             <div class="card">
@@ -151,6 +187,7 @@
 
             <div class="card">
                 <h3>Fehlersammelkarte</h3>
+                <div id="massungenBox"></div>
                 <div id="fehlerSummary" class="fehler-summary"></div>
                 <div id="fehlerGrid" class="fehler-grid"></div>
                 <div id="fehlerLog" class="fehler-log"></div>

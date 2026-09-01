@@ -15,14 +15,25 @@ const zeichnungSchema = new mongoose.Schema({
   uploadedAt: { type: Date, default: Date.now },
 }, { _id: false });
 
-// Eine Zeile im Produktionslenkungsplan (Prüfmerkmal mit Sollwert/Toleranz/Prüfmittel).
-const plpZeileSchema = new mongoose.Schema({
-  merkmal: String,
-  sollwert: String,
-  toleranz: String,
+// Ein Punkt im Produktionslenkungsplan - entweder ein abzuhakender Prozessschritt
+// (treibt den Prozessbegleitschein) oder eine Maßprüfung mit Sollwert/Toleranz
+// (treibt die Erstfreigabe + Fehlersammelkarte). Behält eine eigene _id (anders
+// als die übrigen Artikel-Unterlisten), damit Order.laufzettel/massungen/
+// erstfreigabe per pruefpunktId auf den genauen Punkt verweisen können, auch
+// wenn Bezeichnung/Sollwert später bearbeitet werden - die Werte auf dem
+// Auftrag sind ein Schnappschuss zum Zeitpunkt der Erfassung und bleiben für
+// die Rückverfolgbarkeit unverändert, selbst wenn sich der Stammdatensatz ändert.
+const plpEintragSchema = new mongoose.Schema({
+  bezeichnung: { type: String, required: true },
+  typ: { type: String, enum: ['prozess', 'masspruefung'], default: 'prozess' },
+  // Nur bei typ === 'masspruefung':
+  sollwert: Number,
+  toleranzMin: Number,
+  toleranzMax: Number,
+  einheit: String,
   pruefmittel: String,
   pruefhaeufigkeit: String,
-}, { _id: false });
+});
 
 // Ein Eintrag pro Artikel - Prozessdaten (Maschine/Kavität/...) und Stückliste
 // (Bezeichnung/Komponenten) gehören zusammen, statt in zwei getrennten
@@ -37,7 +48,7 @@ const artikelSchema = new mongoose.Schema({
   zeitProHundert: Number,
   komponenten: [komponenteSchema],
   zeichnung: { type: zeichnungSchema, default: null },
-  plp: [plpZeileSchema],
+  plp: [plpEintragSchema],
 }, { _id: false });
 
 const artikelstammSchema = new mongoose.Schema({

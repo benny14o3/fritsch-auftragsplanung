@@ -914,20 +914,89 @@ async function removeArticleZeichnung() {
     }
 }
 
+// Maßprüfungs-Felder (Sollwert/Toleranz/Einheit) sind bei Prozessschritten
+// ausgeblendet, statt leere Zellen anzuzeigen, die dort nichts bedeuten.
 function renderArticleDetailPlp() {
     const tbody = document.getElementById('articleDetailPlpTable');
     tbody.innerHTML = '';
     articleDetailPlpRows.forEach((row, idx) => {
         const tr = document.createElement('tr');
-        ['merkmal', 'sollwert', 'toleranz', 'pruefmittel', 'pruefhaeufigkeit'].forEach(key => {
+        const istMass = row.typ === 'masspruefung';
+
+        const typTd = document.createElement('td');
+        const typSelect = document.createElement('select');
+        typSelect.className = 'table-input';
+        [['prozess', 'Prozessschritt'], ['masspruefung', 'Maßprüfung']].forEach(([val, label]) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = label;
+            if (row.typ === val) opt.selected = true;
+            typSelect.appendChild(opt);
+        });
+        typSelect.addEventListener('change', () => {
+            articleDetailPlpRows[idx].typ = typSelect.value;
+            renderArticleDetailPlp();
+        });
+        typTd.appendChild(typSelect);
+        tr.appendChild(typTd);
+
+        const bezTd = document.createElement('td');
+        const bezInput = document.createElement('input');
+        bezInput.className = 'table-input';
+        bezInput.placeholder = istMass ? 'z.B. Außendurchmesser' : 'z.B. Entgraten';
+        bezInput.value = row.bezeichnung || '';
+        bezInput.addEventListener('input', () => { articleDetailPlpRows[idx].bezeichnung = bezInput.value; });
+        bezTd.appendChild(bezInput);
+        tr.appendChild(bezTd);
+
+        ['sollwert', 'toleranzMin', 'toleranzMax'].forEach(key => {
             const td = document.createElement('td');
-            const input = document.createElement('input');
-            input.className = 'table-input';
-            input.value = row[key] || '';
-            input.addEventListener('input', () => { articleDetailPlpRows[idx][key] = input.value; });
-            td.appendChild(input);
+            if (istMass) {
+                const input = document.createElement('input');
+                input.className = 'table-input';
+                input.type = 'number';
+                input.step = 'any';
+                input.value = row[key] ?? '';
+                input.addEventListener('input', () => {
+                    articleDetailPlpRows[idx][key] = input.value === '' ? undefined : Number(input.value);
+                });
+                td.appendChild(input);
+            } else {
+                td.textContent = '–';
+                td.style.color = '#cbd5e1';
+            }
             tr.appendChild(td);
         });
+
+        const einheitTd = document.createElement('td');
+        if (istMass) {
+            const input = document.createElement('input');
+            input.className = 'table-input';
+            input.placeholder = 'mm';
+            input.value = row.einheit || '';
+            input.addEventListener('input', () => { articleDetailPlpRows[idx].einheit = input.value; });
+            einheitTd.appendChild(input);
+        } else {
+            einheitTd.textContent = '–';
+            einheitTd.style.color = '#cbd5e1';
+        }
+        tr.appendChild(einheitTd);
+
+        ['pruefmittel', 'pruefhaeufigkeit'].forEach(key => {
+            const td = document.createElement('td');
+            if (istMass) {
+                const input = document.createElement('input');
+                input.className = 'table-input';
+                input.value = row[key] || '';
+                input.addEventListener('input', () => { articleDetailPlpRows[idx][key] = input.value; });
+                td.appendChild(input);
+            } else {
+                td.textContent = '–';
+                td.style.color = '#cbd5e1';
+            }
+            tr.appendChild(td);
+        });
+
         const actionTd = document.createElement('td');
         const delBtn = document.createElement('button');
         delBtn.textContent = '🗑';
@@ -951,8 +1020,13 @@ function fileToBase64(file) {
     });
 }
 
-document.getElementById('articleDetailPlpAddBtn')?.addEventListener('click', () => {
-    articleDetailPlpRows.push({ merkmal: '', sollwert: '', toleranz: '', pruefmittel: '', pruefhaeufigkeit: '' });
+document.getElementById('articleDetailAddProzessBtn')?.addEventListener('click', () => {
+    articleDetailPlpRows.push({ typ: 'prozess', bezeichnung: '' });
+    renderArticleDetailPlp();
+});
+
+document.getElementById('articleDetailAddMassBtn')?.addEventListener('click', () => {
+    articleDetailPlpRows.push({ typ: 'masspruefung', bezeichnung: '', sollwert: undefined, toleranzMin: undefined, toleranzMax: undefined, einheit: '', pruefmittel: '', pruefhaeufigkeit: '' });
     renderArticleDetailPlp();
 });
 
@@ -990,7 +1064,7 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
         const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ plp: articleDetailPlpRows.filter(r => Object.values(r).some(v => (v || '').trim())) }),
+            body: JSON.stringify({ plp: articleDetailPlpRows.filter(r => (r.bezeichnung || '').trim()) }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -1356,12 +1430,13 @@ async function saveOrdersToBackend(orders) {
     }
 }
 
-// Während ein Datums-Feld (Wareneingang/Warenausgang) fokussiert ist, nicht neu
-// rendern - das würde den Input samt offenem Kalender-Picker ersetzen und ihn
-// vorzeitig schließen, noch bevor man ein Datum auswählen konnte.
+// Während ein Datums- oder Chargen-Feld (Wareneingang/Warenausgang/Charge)
+// fokussiert ist, nicht neu rendern - das würde den Input ersetzen und dabei
+// einen offenen Kalender-Picker vorzeitig schließen bzw. unfertige Eingaben
+// in der Chargennummer verwerfen.
 function isEditingDateInput() {
     const el = document.activeElement;
-    return !!el && el.tagName === 'INPUT' && el.type === 'date';
+    return !!el && el.tagName === 'INPUT' && (el.type === 'date' || el.classList.contains('komp-charge'));
 }
 
 async function fetchBoard() {
@@ -1415,7 +1490,10 @@ function buildCardElement(order, { spalte = null } = {}) {
             // "x" zum Löschen an - deshalb einen eigenen Löschen-Button, der in
             // jedem Browser gleich funktioniert.
             const clearBtn = k.wareneingang ? `<button type="button" class="komp-date-clear" data-komp-index="${idx}" title="Wareneingang löschen">✕</button>` : '';
-            return `<div class="komponente-zeile"><span>${icon} ${escapeHtml(label)}</span><input type="date" class="komp-date" data-komp-index="${idx}" value="${toDateInputValue(k.wareneingang)}">${clearBtn}</div>`;
+            return `<div class="komponente-zeile-gruppe">
+                <div class="komponente-zeile"><span>${icon} ${escapeHtml(label)}</span><input type="date" class="komp-date" data-komp-index="${idx}" value="${toDateInputValue(k.wareneingang)}">${clearBtn}</div>
+                <input type="text" class="komp-charge" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">
+            </div>`;
         }).join('');
         komponentenHtml = `<div class="kanban-card-komponenten ${komplett ? 'komplett' : ''}">${zeilen}</div>`;
     }
@@ -1438,6 +1516,16 @@ function buildCardElement(order, { spalte = null } = {}) {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             setKomponenteDatum(order._id, parseInt(btn.dataset.kompIndex), '');
+        });
+    });
+
+    card.querySelectorAll('.komp-charge').forEach(input => {
+        input.draggable = false;
+        input.addEventListener('mousedown', (e) => e.stopPropagation());
+        input.addEventListener('click', (e) => e.stopPropagation());
+        input.addEventListener('change', (e) => {
+            e.stopPropagation();
+            setKomponenteCharge(order._id, parseInt(input.dataset.kompIndex), input.value);
         });
     });
 
@@ -2330,6 +2418,28 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify(patchBody),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// Chargennummer des Lieferanten je Komponente - für ISO-9001-Rückverfolgbarkeit,
+// löst anders als das Wareneingangsdatum keine Zeitplan-Neuberechnung aus.
+async function setKomponenteCharge(orderId, idx, charge) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order || !order.komponenten?.[idx]) return;
+
+    order.komponenten[idx].charge = charge;
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ komponenten: order.komponenten }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
