@@ -1586,9 +1586,12 @@ function buildCardElement(order, { spalte = null } = {}) {
             // "x" zum Löschen an - deshalb einen eigenen Löschen-Button, der in
             // jedem Browser gleich funktioniert.
             const clearBtn = k.wareneingang ? `<button type="button" class="komp-date-clear" data-komp-index="${idx}" title="Wareneingang löschen">✕</button>` : '';
+            // Das Werkzeug ist keine Rohmaterial-Komponente eines Lieferanten -
+            // dafür gibt es keine Charge.
+            const chargeInput = k.bezeichnung === 'Werkzeug' ? '' : `<input type="text" class="komp-charge" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">`;
             return `<div class="komponente-zeile-gruppe">
                 <div class="komponente-zeile"><span>${icon} ${escapeHtml(label)}</span><input type="date" class="komp-date" data-komp-index="${idx}" value="${toDateInputValue(k.wareneingang)}">${clearBtn}</div>
-                <input type="text" class="komp-charge" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">
+                ${chargeInput}
             </div>`;
         }).join('');
         komponentenHtml = `<div class="kanban-card-komponenten ${komplett ? 'komplett' : ''}">${zeilen}</div>`;

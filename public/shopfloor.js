@@ -199,7 +199,7 @@ function renderKomponenten(order) {
     box.innerHTML = komponenten.map(k => `
         <div class="komponente-info-row">
             <span class="komponente-info-name">${k.artikelnummer ? `${k.artikelnummer} - ` : ''}${k.bezeichnung || ''}</span>
-            <span class="komponente-info-charge">Charge: <b>${k.charge || '–'}</b></span>
+            ${k.bezeichnung === 'Werkzeug' ? '' : `<span class="komponente-info-charge">Charge: <b>${k.charge || '–'}</b></span>`}
         </div>
     `).join('');
 }
