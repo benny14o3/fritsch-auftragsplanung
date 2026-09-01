@@ -204,18 +204,39 @@ function renderKomponenten(order) {
     `).join('');
 }
 
+// Base64 -> Blob statt data:-URI: Safari bricht bei größeren Dateien (z.B.
+// gescannte Zeichnungen als PDF) das Öffnen einer data:-URI in einem neuen Tab
+// oft einfach ab, während Chrome damit keine Probleme hat. Object-URLs
+// funktionieren unabhängig von der Dateigröße in jedem Browser zuverlässig.
+function base64ToObjectUrl(base64, mimeType) {
+    const byteChars = atob(base64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+// Eine Object-URL je Box merken und vor dem nächsten Rendern freigeben - sonst
+// würde bei jedem Polling-Refresh (alle 8s) eine neue URL erzeugt, ohne die
+// alte je freizugeben.
+const aktiveObjectUrls = {};
+
 function renderDateiPreview(boxId, datei, leerText) {
     const box = document.getElementById(boxId);
+    if (aktiveObjectUrls[boxId]) {
+        URL.revokeObjectURL(aktiveObjectUrls[boxId]);
+        delete aktiveObjectUrls[boxId];
+    }
     if (!datei || !datei.data) {
         box.innerHTML = `<div class="no-doc">${leerText}</div>`;
         return;
     }
-    const dataUrl = `data:${datei.mimeType};base64,${datei.data}`;
+    const url = base64ToObjectUrl(datei.data, datei.mimeType);
+    aktiveObjectUrls[boxId] = url;
     const isImage = datei.mimeType.startsWith('image/');
     box.innerHTML = `
         <div class="zeichnung-preview">
-            ${isImage ? `<img src="${dataUrl}" alt="${datei.filename}">` : ''}
-            <div><a href="${dataUrl}" target="_blank" rel="noopener">${datei.filename} öffnen ↗</a></div>
+            ${isImage ? `<img src="${url}" alt="${datei.filename}">` : ''}
+            <div><a href="${url}" target="_blank" rel="noopener">${datei.filename} öffnen ↗</a></div>
         </div>
     `;
 }

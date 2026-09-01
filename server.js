@@ -24,6 +24,10 @@ app.use(helmet({
       // ohne das bricht die PDF-Konvertierung im Bestellungskonverter.
       "worker-src": ["'self'", 'blob:', 'https://cdn.jsdelivr.net'],
       "child-src": ["'self'", 'blob:', 'https://cdn.jsdelivr.net'],
+      // Zeichnungen/Einstelldatenblätter werden als Blob-URL statt data:-URI
+      // angezeigt (Safari bricht bei größeren data:-URIs in neuen Tabs ab) -
+      // ohne blob: hier bricht img-src (Default: 'self' data:) die Bild-Vorschau.
+      "img-src": ["'self'", 'data:', 'blob:'],
     },
   },
 }));

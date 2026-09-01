@@ -886,18 +886,38 @@ function closeArticleDetailModal() {
 
 const ARTIKEL_DATEI_LABEL = { zeichnung: 'Zeichnung', einstelldatenblatt: 'Einstelldatenblatt' };
 
+// Base64 -> Blob statt data:-URI: Safari bricht bei größeren Dateien (z.B.
+// gescannte Zeichnungen als PDF) das Öffnen einer data:-URI in einem neuen Tab
+// oft einfach ab, während Chrome damit keine Probleme hat. Object-URLs
+// funktionieren unabhängig von der Dateigröße in jedem Browser zuverlässig.
+function base64ToObjectUrl(base64, mimeType) {
+    const byteChars = atob(base64);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+    return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+// Eine Object-URL je Feld merken und vor dem nächsten Rendern freigeben.
+const aktiveArtikelDateiUrls = {};
+
 // Zeichnung und Einstelldatenblatt sind strukturell dieselbe Datei-Ablage -
 // eine gemeinsame Anzeige-/Upload-/Löschlogik statt zweier fast identischer.
 function renderArticleDetailDatei(feld, datei) {
     const box = document.getElementById(`articleDetail${feld[0].toUpperCase()}${feld.slice(1)}Current`);
+    if (aktiveArtikelDateiUrls[feld]) {
+        URL.revokeObjectURL(aktiveArtikelDateiUrls[feld]);
+        delete aktiveArtikelDateiUrls[feld];
+    }
     if (!datei) {
         box.innerHTML = `<div class="zeichnung-current">Kein${feld === 'zeichnung' ? 'e' : ''} ${ARTIKEL_DATEI_LABEL[feld]} hinterlegt.</div>`;
         return;
     }
+    const url = base64ToObjectUrl(datei.data, datei.mimeType);
+    aktiveArtikelDateiUrls[feld] = url;
     box.innerHTML = `
         <div class="zeichnung-current">
             <span>📄 ${escapeHtml(datei.filename)} (${new Date(datei.uploadedAt).toLocaleDateString('de-DE')})</span>
-            <a href="data:${datei.mimeType};base64,${datei.data}" target="_blank" rel="noopener">öffnen</a>
+            <a href="${url}" target="_blank" rel="noopener">öffnen</a>
             <button data-datei-feld="${feld}" class="artikel-datei-remove-btn" style="font-size: 11px; padding: 4px 8px; border: 1px solid #fecaca; border-radius: 4px; background: #fef2f2; color: #b91c1c; cursor: pointer;">entfernen</button>
         </div>
     `;
