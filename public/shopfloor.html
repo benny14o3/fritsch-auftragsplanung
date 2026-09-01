@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Formteile Fritsch - Shopfloor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto; background: #0f172a; min-height: 100vh; color: #0f172a; }
+        .hidden { display: none !important; }
+
+        /* --- Login --- */
+        .login-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+        .login-box { background: white; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); padding: 40px; max-width: 380px; width: 100%; text-align: center; }
+        .login-box h1 { font-size: 26px; margin-bottom: 4px; }
+        .login-box p { color: #64748b; margin-bottom: 28px; font-size: 14px; }
+        .form-group { margin-bottom: 16px; text-align: left; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        .form-group input { width: 100%; padding: 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 20px; text-align: center; letter-spacing: 2px; }
+        .form-group input:focus { outline: none; border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15); }
+        .btn { padding: 14px 20px; border: none; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; }
+        .btn-primary { background-color: #16a34a; color: white; width: 100%; }
+        .btn-primary:active { background-color: #15803d; }
+        .btn-secondary { background: #f1f5f9; color: #334155; }
+        .btn-danger { background: #fef2f2; color: #b91c1c; }
+        .error { background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; margin-bottom: 16px; color: #991b1b; font-size: 13px; }
+
+        /* --- App shell --- */
+        #appScreen { min-height: 100vh; display: flex; flex-direction: column; }
+        .topbar { background: #1e293b; color: white; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; }
+        .topbar h1 { font-size: 17px; }
+        .topbar .sub { font-size: 12px; color: rgba(255,255,255,0.55); }
+        .topbar-actions { display: flex; gap: 8px; align-items: center; }
+        .topbar button { padding: 8px 14px; font-size: 13px; }
+        .content { flex: 1; background: #f1f5f9; padding: 16px; }
+
+        .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+        .tab { flex: 1; text-align: center; padding: 10px; border-radius: 8px; background: white; border: 1px solid #e2e8f0; font-weight: 700; font-size: 14px; cursor: pointer; color: #64748b; }
+        .tab.active { background: #16a34a; color: white; border-color: #16a34a; }
+
+        .order-list { display: flex; flex-direction: column; gap: 10px; }
+        .order-card { background: white; border-radius: 10px; border: 1px solid #e2e8f0; border-left: 5px solid #16a34a; padding: 14px 16px; cursor: pointer; }
+        .order-card.status-endbearbeitung { border-left-color: #eab308; }
+        .order-card .row1 { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+        .order-card .artikel { font-weight: 700; font-size: 16px; }
+        .order-card .auftrag { font-size: 13px; color: #64748b; }
+        .order-card .desc { font-size: 13px; color: #475569; margin-bottom: 8px; }
+        .order-card .progress-row { display: flex; align-items: center; gap: 8px; }
+        .order-card .progress-bar { flex: 1; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+        .order-card .progress-fill { height: 100%; background: #16a34a; }
+        .order-card .progress-label { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+        .empty-note { color: #94a3b8; text-align: center; padding: 40px 16px; font-size: 14px; }
+
+        /* --- Detail --- */
+        .detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .back-btn { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; font-size: 14px; font-weight: 700; cursor: pointer; }
+        .detail-title { font-size: 18px; font-weight: 700; }
+        .detail-sub { font-size: 13px; color: #64748b; }
+
+        .card { background: white; border-radius: 10px; border: 1px solid #e2e8f0; padding: 16px; margin-bottom: 14px; }
+        .card h3 { font-size: 14px; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #334155; }
+
+        .zeichnung-preview { text-align: center; }
+        .zeichnung-preview img { max-width: 100%; max-height: 320px; border-radius: 6px; border: 1px solid #e2e8f0; }
+        .zeichnung-preview a { display: inline-block; margin-top: 10px; padding: 10px 16px; background: #f1f5f9; border-radius: 8px; text-decoration: none; color: #0f172a; font-size: 13px; font-weight: 600; }
+        .no-doc { color: #94a3b8; font-size: 13px; text-align: center; padding: 12px; }
+
+        table.plp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        table.plp-table th { text-align: left; padding: 6px 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+        table.plp-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
+
+        .station-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px; border-bottom: 1px solid #f1f5f9; gap: 10px; }
+        .station-row:last-child { border-bottom: none; }
+        .station-name { font-weight: 600; font-size: 15px; }
+        .station-meta { font-size: 11px; color: #94a3b8; }
+        .station-toggle { width: 44px; height: 44px; border-radius: 50%; border: 2px solid #cbd5e1; background: white; font-size: 20px; cursor: pointer; flex-shrink: 0; }
+        .station-toggle.done { background: #16a34a; border-color: #16a34a; color: white; }
+
+        .fehler-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
+        .fehler-btn { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 8px; padding: 14px 8px; font-size: 13px; font-weight: 700; cursor: pointer; text-align: center; }
+        .fehler-btn:active { background: #fee2e2; }
+        .fehler-log { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+        .fehler-log-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 8px; background: #f8fafc; border-radius: 6px; }
+        .fehler-log-row button { border: none; background: none; color: #b91c1c; font-size: 16px; cursor: pointer; }
+        .fehler-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .fehler-summary span { background: #f1f5f9; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+    </style>
+</head>
+<body>
+
+<div id="loginScreen" class="login-container">
+    <div class="login-box">
+        <h1>🏭 Shopfloor</h1>
+        <p>Formteile Fritsch GmbH</p>
+        <div id="loginError" class="error hidden"></div>
+        <div class="form-group">
+            <label>Kürzel</label>
+            <input type="text" id="loginKuerzel" maxlength="6" autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label>PIN</label>
+            <input type="password" id="loginPin" inputmode="numeric" maxlength="8" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" id="loginBtn">Anmelden</button>
+    </div>
+</div>
+
+<div id="appScreen" class="hidden">
+    <div class="topbar">
+        <div>
+            <h1 id="topbarTitle">Shopfloor</h1>
+            <div class="sub" id="userGreeting"></div>
+        </div>
+        <div class="topbar-actions">
+            <button class="btn btn-secondary" id="refreshBtn">⟳</button>
+            <button class="btn btn-danger" id="logoutBtn">Abmelden</button>
+        </div>
+    </div>
+    <div class="content">
+        <div id="boardView">
+            <div class="tabs">
+                <div class="tab active" data-type="Elastomer">Formgebung</div>
+                <div class="tab" data-type="PTFE">CNC</div>
+            </div>
+            <div id="orderList" class="order-list"></div>
+        </div>
+
+        <div id="detailView" class="hidden">
+            <div class="detail-header">
+                <button class="back-btn" id="backBtn">← Zurück</button>
+                <div>
+                    <div class="detail-title" id="detailTitle"></div>
+                    <div class="detail-sub" id="detailSub"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Zeichnung</h3>
+                <div id="zeichnungBox"></div>
+            </div>
+
+            <div class="card">
+                <h3>Produktionslenkungsplan</h3>
+                <div id="plpBox"></div>
+            </div>
+
+            <div class="card">
+                <h3>Prozessbegleitschein</h3>
+                <div id="laufzettelBox"></div>
+            </div>
+
+            <div class="card">
+                <h3>Fehlersammelkarte</h3>
+                <div id="fehlerSummary" class="fehler-summary"></div>
+                <div id="fehlerGrid" class="fehler-grid"></div>
+                <div id="fehlerLog" class="fehler-log"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="shopfloor.js"></script>
+</body>
+</html>

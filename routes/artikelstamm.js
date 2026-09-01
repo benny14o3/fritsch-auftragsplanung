@@ -133,7 +133,7 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     const entry = doc.artikel.find(a => a.material === req.params.material);
     if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
 
-    const { material, bezeichnung, dbType, maschine, kavitaet, rundenProSchicht, zeitProHundert, komponenten } = req.body;
+    const { material, bezeichnung, dbType, maschine, kavitaet, rundenProSchicht, zeitProHundert, komponenten, plp } = req.body;
     if (material !== undefined && material !== entry.material) {
       if (doc.artikel.some(a => a.material === material)) {
         return res.status(409).json({ error: `Artikel ${material} existiert bereits` });
@@ -147,7 +147,41 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     if (rundenProSchicht !== undefined) entry.rundenProSchicht = rundenProSchicht;
     if (zeitProHundert !== undefined) entry.zeitProHundert = zeitProHundert;
     if (komponenten !== undefined) entry.komponenten = komponenten;
+    if (plp !== undefined) entry.plp = plp;
 
+    doc.updatedBy = req.userId;
+    doc.lastUpdated = new Date();
+    await doc.save();
+    res.json(entry);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Zeichnung (PDF/Bild) für einen Artikel hochladen bzw. entfernen - separat von
+// der PATCH-Route, weil die Datei als base64 deutlich größer ist als die
+// übrigen Felder.
+router.put('/materialien/:material/zeichnung', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const doc = await getOrCreateDoc();
+    const entry = doc.artikel.find(a => a.material === req.params.material);
+    if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
+
+    const { filename, mimeType, data } = req.body;
+    if (!filename || !mimeType || !data) return res.status(400).json({ error: 'Datei unvollständig' });
+    entry.zeichnung = { filename, mimeType, data, uploadedAt: new Date() };
+
+    doc.updatedBy = req.userId;
+    doc.lastUpdated = new Date();
+    await doc.save();
+    res.json(entry);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/materialien/:material/zeichnung', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const doc = await getOrCreateDoc();
+    const entry = doc.artikel.find(a => a.material === req.params.material);
+    if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
+    entry.zeichnung = null;
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();

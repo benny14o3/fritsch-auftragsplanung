@@ -6,6 +6,24 @@ const komponenteSchema = new mongoose.Schema({
   wareneingang: { type: Date, default: null },
 });
 
+// Ein Eintrag pro Strich auf der Fehlersammelkarte - Kürzel/Zeitpunkt kommen aus
+// dem Shopfloor-Login, damit die Karte nachvollziehbar bleibt (statt nur einer
+// nackten Zahl je Fehlerart).
+const fehlerEintragSchema = new mongoose.Schema({
+  fehlerart: { type: String, required: true },
+  kuerzel: { type: String, required: true },
+  zeitpunkt: { type: Date, default: Date.now },
+});
+
+// Prozessbegleitschein: eine Station je Arbeitsschritt, am Shopfloor-Bildschirm
+// abgehakt statt auf Papier mitgeführt.
+const laufzettelStationSchema = new mongoose.Schema({
+  station: { type: String, required: true },
+  erledigt: { type: Boolean, default: false },
+  kuerzel: { type: String, default: null },
+  zeitpunkt: { type: Date, default: null },
+}, { _id: false });
+
 const orderSchema = new mongoose.Schema({
   auftragsnummer: String,
   bestellnummer: String,
@@ -28,6 +46,8 @@ const orderSchema = new mongoose.Schema({
   phase: { type: String, enum: ['produktion', 'endbearbeitung', 'ausgeliefert'], default: 'produktion' },
   warenausgang: { type: Date, default: null },
   position: { type: Number, default: 0 },
+  fehlersammelkarte: [fehlerEintragSchema],
+  laufzettel: [laufzettelStationSchema],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now },

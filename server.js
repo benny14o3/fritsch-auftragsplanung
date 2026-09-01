@@ -10,6 +10,7 @@ const path = require('path');
 const authRoutes = require('./routes/auth');
 const orderRoutes = require('./routes/orders');
 const artikelstammRoutes = require('./routes/artikelstamm');
+const shopfloorRoutes = require('./routes/shopfloor');
 
 const app = express();
 
@@ -45,10 +46,15 @@ mongoose.connect(process.env.MONGODB_URI, {
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/artikelstamm', artikelstammRoutes);
+app.use('/api/shopfloor', shopfloorRoutes);
 
 // Frontend
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/shopfloor', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'shopfloor.html'));
 });
 
 // Error Handler

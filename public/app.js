@@ -117,6 +117,7 @@ function showPage(page) {
     });
 
     if (BOARD_PAGES.includes(page)) loadExistingBoard();
+    if (page === 'databases') fetchWerker();
 }
 
 async function loadExistingBoard() {
@@ -628,6 +629,16 @@ function renderDatabaseTable() {
             kompTd.textContent = (article.komponenten || []).map(k => `${k.artikelnummer ? k.artikelnummer + ' - ' : ''}${k.bezeichnung}`).join('\n') || '–';
             tr.appendChild(kompTd);
 
+            const shopfloorTd = document.createElement('td');
+            const detailBtn = document.createElement('button');
+            detailBtn.className = 'table-actions';
+            detailBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
+            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
+            detailBtn.title = 'Zeichnung & PLP';
+            detailBtn.addEventListener('click', () => openArticleDetailModal(article.material));
+            shopfloorTd.appendChild(detailBtn);
+            tr.appendChild(shopfloorTd);
+
             const editBtn = document.createElement('button');
             editBtn.textContent = '✏️';
             editBtn.title = 'Bearbeiten';
@@ -699,6 +710,15 @@ function renderDatabaseTable() {
             kompTextarea.value = formatKomponentenText(article.komponenten);
             kompTd.appendChild(kompTextarea);
             tr.appendChild(kompTd);
+
+            const shopfloorEditTd = document.createElement('td');
+            const detailEditBtn = document.createElement('button');
+            detailEditBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
+            detailEditBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
+            detailEditBtn.title = 'Zeichnung & PLP';
+            detailEditBtn.addEventListener('click', () => openArticleDetailModal(article.material));
+            shopfloorEditTd.appendChild(detailEditBtn);
+            tr.appendChild(shopfloorEditTd);
 
             const saveBtn = document.createElement('button');
             saveBtn.className = 'primary';
@@ -838,6 +858,228 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+// --- Zeichnung + Produktionslenkungsplan je Artikel (für den Shopfloor) ---
+let articleDetailMaterial = null;
+let articleDetailPlpRows = [];
+
+function openArticleDetailModal(material) {
+    const article = artikelstamm.artikel.find(a => a.material === material);
+    if (!article) return;
+    articleDetailMaterial = material;
+    articleDetailPlpRows = (article.plp || []).map(r => ({ ...r }));
+    document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
+    document.getElementById('articleDetailNote').textContent = '';
+    renderArticleDetailZeichnung(article.zeichnung);
+    renderArticleDetailPlp();
+    document.getElementById('articleDetailZeichnungFile').value = '';
+    document.getElementById('articleDetailModal').classList.remove('hidden');
+}
+
+function closeArticleDetailModal() {
+    document.getElementById('articleDetailModal').classList.add('hidden');
+    articleDetailMaterial = null;
+}
+
+function renderArticleDetailZeichnung(zeichnung) {
+    const box = document.getElementById('articleDetailZeichnungCurrent');
+    if (!zeichnung) {
+        box.innerHTML = '<div class="zeichnung-current">Keine Zeichnung hinterlegt.</div>';
+        return;
+    }
+    box.innerHTML = `
+        <div class="zeichnung-current">
+            <span>📄 ${escapeHtml(zeichnung.filename)} (${new Date(zeichnung.uploadedAt).toLocaleDateString('de-DE')})</span>
+            <a href="data:${zeichnung.mimeType};base64,${zeichnung.data}" target="_blank" rel="noopener">öffnen</a>
+            <button id="articleDetailZeichnungRemoveBtn" style="font-size: 11px; padding: 4px 8px; border: 1px solid #fecaca; border-radius: 4px; background: #fef2f2; color: #b91c1c; cursor: pointer;">entfernen</button>
+        </div>
+    `;
+    document.getElementById('articleDetailZeichnungRemoveBtn')?.addEventListener('click', removeArticleZeichnung);
+}
+
+async function removeArticleZeichnung() {
+    if (!articleDetailMaterial) return;
+    try {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}/zeichnung`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        const idx = artikelstamm.artikel.findIndex(a => a.material === articleDetailMaterial);
+        if (idx !== -1) artikelstamm.artikel[idx] = data;
+        renderArticleDetailZeichnung(null);
+        renderDatabaseTable();
+    } catch (err) {
+        document.getElementById('articleDetailNote').textContent = 'Entfernen fehlgeschlagen.';
+    }
+}
+
+function renderArticleDetailPlp() {
+    const tbody = document.getElementById('articleDetailPlpTable');
+    tbody.innerHTML = '';
+    articleDetailPlpRows.forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        ['merkmal', 'sollwert', 'toleranz', 'pruefmittel', 'pruefhaeufigkeit'].forEach(key => {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.className = 'table-input';
+            input.value = row[key] || '';
+            input.addEventListener('input', () => { articleDetailPlpRows[idx][key] = input.value; });
+            td.appendChild(input);
+            tr.appendChild(td);
+        });
+        const actionTd = document.createElement('td');
+        const delBtn = document.createElement('button');
+        delBtn.textContent = '🗑';
+        delBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #fecaca; border-radius: 4px; background: #fef2f2; color: #b91c1c; cursor: pointer;';
+        delBtn.addEventListener('click', () => {
+            articleDetailPlpRows.splice(idx, 1);
+            renderArticleDetailPlp();
+        });
+        actionTd.appendChild(delBtn);
+        tr.appendChild(actionTd);
+        tbody.appendChild(tr);
+    });
+}
+
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+document.getElementById('articleDetailPlpAddBtn')?.addEventListener('click', () => {
+    articleDetailPlpRows.push({ merkmal: '', sollwert: '', toleranz: '', pruefmittel: '', pruefhaeufigkeit: '' });
+    renderArticleDetailPlp();
+});
+
+document.getElementById('articleDetailCloseBtn')?.addEventListener('click', closeArticleDetailModal);
+
+document.getElementById('articleDetailZeichnungFile')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file || !articleDetailMaterial) return;
+    const note = document.getElementById('articleDetailNote');
+    try {
+        const base64 = await fileToBase64(file);
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}/zeichnung`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ filename: file.name, mimeType: file.type || 'application/octet-stream', data: base64 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        const idx = artikelstamm.artikel.findIndex(a => a.material === articleDetailMaterial);
+        if (idx !== -1) artikelstamm.artikel[idx] = data;
+        renderArticleDetailZeichnung(data.zeichnung);
+        renderDatabaseTable();
+        note.style.color = '#15803d';
+        note.textContent = '✅ Zeichnung hochgeladen.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Upload fehlgeschlagen.';
+    }
+});
+
+document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async () => {
+    if (!articleDetailMaterial) return;
+    const note = document.getElementById('articleDetailNote');
+    try {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ plp: articleDetailPlpRows.filter(r => Object.values(r).some(v => (v || '').trim())) }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        const idx = artikelstamm.artikel.findIndex(a => a.material === articleDetailMaterial);
+        if (idx !== -1) artikelstamm.artikel[idx] = data;
+        renderDatabaseTable();
+        note.style.color = '#15803d';
+        note.textContent = '✅ Gespeichert.';
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Speichern fehlgeschlagen.';
+    }
+});
+
+// --- Werker-Konten (eigener Login für /shopfloor, getrennt von den Büro-Konten) ---
+
+async function fetchWerker() {
+    if (currentUser?.role !== 'admin') return;
+    try {
+        const res = await fetch(`${API_URL}/shopfloor/users`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        renderWerkerTable(await res.json());
+    } catch (err) { /* Werkerliste konnte nicht geladen werden */ }
+}
+
+function renderWerkerTable(werker) {
+    const tbody = document.getElementById('werkerTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    werker.forEach(w => {
+        const tr = document.createElement('tr');
+        [w.kuerzel, w.name, '••••'].forEach(val => {
+            const td = document.createElement('td');
+            td.textContent = val;
+            tr.appendChild(td);
+        });
+        const actionsTd = document.createElement('td');
+        actionsTd.className = 'table-actions';
+        const delBtn = document.createElement('button');
+        delBtn.className = 'danger';
+        delBtn.textContent = '🗑';
+        delBtn.title = 'Löschen';
+        delBtn.addEventListener('click', () => deleteWerker(w._id));
+        actionsTd.appendChild(delBtn);
+        tr.appendChild(actionsTd);
+        tbody.appendChild(tr);
+    });
+}
+
+async function addWerker() {
+    const note = document.getElementById('werkerNote');
+    const kuerzel = document.getElementById('werkerNewKuerzel').value.trim();
+    const name = document.getElementById('werkerNewName').value.trim();
+    const pin = document.getElementById('werkerNewPin').value.trim();
+    note.style.color = '#b91c1c';
+    if (!kuerzel || !name || !pin) {
+        note.textContent = 'Kürzel, Name und PIN sind erforderlich.';
+        return;
+    }
+    try {
+        const res = await fetch(`${API_URL}/shopfloor/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ kuerzel, name, pin }),
+        });
+        const data = await res.json();
+        if (!res.ok) { note.textContent = data.error || 'Anlegen fehlgeschlagen.'; return; }
+        note.style.color = '#15803d';
+        note.textContent = `✅ ${data.kuerzel} angelegt.`;
+        ['werkerNewKuerzel', 'werkerNewName', 'werkerNewPin'].forEach(id => { document.getElementById(id).value = ''; });
+        fetchWerker();
+    } catch (err) {
+        note.textContent = 'Anlegen fehlgeschlagen.';
+    }
+}
+
+async function deleteWerker(id) {
+    try {
+        await fetch(`${API_URL}/shopfloor/users/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        fetchWerker();
+    } catch (err) { /* ignore */ }
+}
+
+document.getElementById('werkerAddBtn')?.addEventListener('click', addWerker);
+document.getElementById('openShopfloorBtn')?.addEventListener('click', () => window.open('/shopfloor', '_blank'));
+
 const MASCHINEN = [
     { id: 'MG1', name: 'Maplan Gummi 1', kapMin: 480, type: 'Elastomer', subtyp: 'Gummi' },
     { id: 'MG2', name: 'Maplan Gummi 2', kapMin: 480, type: 'Elastomer', subtyp: 'Gummi' },
@@ -936,6 +1178,11 @@ function getISOWeek(date) {
     d.setUTCDate(d.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
     return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+function formatLieferwoche(lieferdatum) {
+    if (!lieferdatum) return null;
+    return `KW ${getISOWeek(new Date(lieferdatum))}`;
 }
 
 function parseExcelDatum(value) {
@@ -1164,7 +1411,11 @@ function buildCardElement(order, { spalte = null } = {}) {
         const zeilen = order.komponenten.map((k, idx) => {
             const icon = k.wareneingang ? '✅' : '⭕';
             const label = k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung}` : k.bezeichnung;
-            return `<div class="komponente-zeile"><span>${icon} ${escapeHtml(label)}</span><input type="date" class="komp-date" data-komp-index="${idx}" value="${toDateInputValue(k.wareneingang)}"></div>`;
+            // Safari zeigt bei <input type="date"> anders als Chrome kein natives
+            // "x" zum Löschen an - deshalb einen eigenen Löschen-Button, der in
+            // jedem Browser gleich funktioniert.
+            const clearBtn = k.wareneingang ? `<button type="button" class="komp-date-clear" data-komp-index="${idx}" title="Wareneingang löschen">✕</button>` : '';
+            return `<div class="komponente-zeile"><span>${icon} ${escapeHtml(label)}</span><input type="date" class="komp-date" data-komp-index="${idx}" value="${toDateInputValue(k.wareneingang)}">${clearBtn}</div>`;
         }).join('');
         komponentenHtml = `<div class="kanban-card-komponenten ${komplett ? 'komplett' : ''}">${zeilen}</div>`;
     }
@@ -1178,6 +1429,15 @@ function buildCardElement(order, { spalte = null } = {}) {
         input.addEventListener('change', (e) => {
             e.stopPropagation();
             setKomponenteDatum(order._id, parseInt(input.dataset.kompIndex), input.value);
+        });
+    });
+
+    card.querySelectorAll('.komp-date-clear').forEach(btn => {
+        btn.draggable = false;
+        btn.addEventListener('mousedown', (e) => e.stopPropagation());
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            setKomponenteDatum(order._id, parseInt(btn.dataset.kompIndex), '');
         });
     });
 
@@ -1568,14 +1828,20 @@ function renderGantt(orders, dbType) {
 
             const bar = document.createElement('div');
             bar.className = `gantt-bar card-${o.status}`;
+            const lieferwoche = formatLieferwoche(o.lieferdatum);
+            // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
+            const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
             // Artikelnummer, Auftragsnummer und Bezeichnung als eigene Zeilen/Zellen -
-            // nicht mehr zusammengedrängt, damit die Bezeichnung lesbar bleibt.
+            // nicht mehr zusammengedrängt, damit die Bezeichnung lesbar bleibt. Die
+            // Lieferwoche wird in die Auftrags-Zeile eingehängt statt eine eigene
+            // Zeile zu belegen - bei kurzen (1-Tages-)Balken reicht sonst die feste
+            // Zeilenhöhe nicht und die Zeile wird durch overflow:hidden abgeschnitten.
             bar.innerHTML = `
                 <div class="gantt-bar-zelle gantt-bar-artikel">${escapeHtml(o.artikelnummer)}</div>
-                <div class="gantt-bar-zelle gantt-bar-auftrag">Auftrag ${escapeHtml(o.auftragsnummer)}</div>
+                <div class="gantt-bar-zelle gantt-bar-auftrag${zuSpaet ? ' spaet' : ''}">Auftrag ${escapeHtml(o.auftragsnummer)}${lieferwoche ? ` · ${zuSpaet ? '⚠ ' : ''}${lieferwoche}` : ''}</div>
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
             bar.draggable = true;
@@ -1833,6 +2099,32 @@ function getMachineNextFree(maschineId, excludeOrderId = null) {
     return addWorkdays(maxEnd, 1);
 }
 
+// Für den Vergleich von Lieferterminen: kein Termin gilt als "später als alles",
+// analog zur Sortierung in planMachines.
+function liefertermSchluessel(datum) {
+    return datum ? new Date(datum).getTime() : Infinity;
+}
+
+// Nächster freier Platz für einen Auftrag, der GERADE produzierbar wird - anders
+// als getMachineNextFree() reiht das nicht hinter ALLE Aufträge der Maschine ein
+// (auch nicht hinter noch gar nicht produzierbare mit längst überholtem
+// Platzhalter-Termin), sondern nur hinter die bereits produzierbaren Aufträge
+// mit gleichem oder früherem Liefertermin. So landet der Auftrag an der zu
+// seinem Liefertermin passenden Stelle, ohne dass andere Aufträge (auch
+// manuell verschobene) angetastet werden.
+function getInsertionSlot(order, maschineId) {
+    const vorgaenger = boardOrders.filter(o =>
+        o.phase === 'produktion' && o._id !== order._id && o.endDatum && istKomponentenBereit(o)
+        && (o.maschineId === maschineId || o.maschineId2 === maschineId)
+        && liefertermSchluessel(o.lieferdatum) <= liefertermSchluessel(order.lieferdatum));
+    let frei = nextWeekday(new Date());
+    vorgaenger.forEach(o => {
+        const ende = addWorkdays(new Date(o.endDatum), 1);
+        if (ende > frei) frei = ende;
+    });
+    return frei;
+}
+
 async function handleManualAddOrder() {
     const note = document.getElementById('manualAddNote');
     const auftragsnummer = document.getElementById('manualAuftragsnummer').value.trim();
@@ -2006,15 +2298,15 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
     const patchBody = { komponenten: order.komponenten };
 
     // Wird ein Auftrag durch dieses Update produzierbar (alle Komponenten da),
-    // auf den tatsächlich nächsten freien Platz auf seiner Maschine schieben -
-    // der bisherige Termin wurde oft schon lange vorher vergeben, ohne
-    // Rücksicht darauf, wann die Komponenten wirklich verfügbar sind.
+    // an der zu seinem Liefertermin passenden Stelle auf seiner Maschine
+    // einsortieren - der bisherige Termin wurde oft schon lange vorher vergeben,
+    // ohne Rücksicht darauf, wann die Komponenten wirklich verfügbar sind.
     if (!warBereitVorher && istBereitJetzt && order.maschineId) {
         const tage = Math.max(1, order.schichten || 1);
-        const frei1 = getMachineNextFree(order.maschineId, order._id);
+        const frei1 = getInsertionSlot(order, order.maschineId);
         const frei = order.maschineId2
             ? (() => {
-                const frei2 = getMachineNextFree(order.maschineId2, order._id);
+                const frei2 = getInsertionSlot(order, order.maschineId2);
                 return frei1 > frei2 ? frei1 : frei2;
             })()
             : frei1;

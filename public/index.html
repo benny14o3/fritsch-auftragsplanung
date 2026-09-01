@@ -103,6 +103,8 @@
         .komponente-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0; }
         .komponente-zeile span { flex: 1; min-width: 0; }
         .komp-date { font-size: 11px; border: 1px solid #e2e8f0; border-radius: 4px; padding: 1px 2px; width: 108px; cursor: pointer; }
+        .komp-date-clear { font-size: 11px; line-height: 1; border: 1px solid #e2e8f0; border-radius: 4px; padding: 3px 5px; background: #f8fafc; color: #64748b; cursor: pointer; flex-shrink: 0; }
+        .komp-date-clear:hover { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
         .kanban-card-bestellung { color: #0369a1; margin-bottom: 4px; }
         .kanban-card-actions { display: flex; gap: 6px; margin-top: 8px; }
         .kanban-card-actions button { flex: 1; font-size: 11px; padding: 5px 6px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; }
@@ -134,8 +136,19 @@
         .gantt-bar-artikel { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .gantt-bar-auftrag { color: rgba(255,255,255,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .gantt-bar-desc { color: rgba(255,255,255,0.95); white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .gantt-bar-auftrag.spaet { font-weight: 700; }
 
         input[type="file"] { display: none; }
+
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+        .modal-box { background: white; border-radius: 10px; max-width: 640px; width: 100%; max-height: 90vh; overflow-y: auto; padding: 24px; }
+        .modal-box h3 { font-size: 18px; margin-bottom: 4px; }
+        .modal-box .modal-sub { color: #64748b; font-size: 13px; margin-bottom: 20px; }
+        .modal-close { float: right; background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b; }
+        .modal-section { margin-bottom: 24px; }
+        .modal-section h4 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; color: #334155; margin-bottom: 10px; }
+        .zeichnung-current { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; color: #475569; }
+        .zeichnung-current a { color: #16a34a; font-weight: 600; text-decoration: none; }
         
         @media (max-width: 768px) {
             .app-container { flex-direction: column; }
@@ -213,6 +226,8 @@
             <div class="sidebar-item" data-page="endbearbeitungCnc">🔧 Endbearbeitung</div>
             <div class="sidebar-item" data-page="ausgeliefertCnc">📦 Ausgeliefert</div>
             <div class="sidebar-item admin-only hidden" data-page="databases">💾 Datenbanken</div>
+            <div class="sidebar-section-label">Werkstatt</div>
+            <div class="sidebar-item" id="openShopfloorBtn">🏭 Shopfloor öffnen</div>
         </div>
         <div class="sidebar-logout">
             <div class="sidebar-item" id="logoutBtn">🚪 Abmelden</div>
@@ -533,6 +548,7 @@
                                 <th>Runden/Schicht</th>
                                 <th>Zeit/100</th>
                                 <th style="min-width: 220px;">Komponenten</th>
+                                <th>Shopfloor</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -552,6 +568,7 @@
                                 <td><input type="number" class="table-input" id="databaseNewRunden" placeholder="1"></td>
                                 <td><input type="number" class="table-input" id="databaseNewZeit" placeholder="0"></td>
                                 <td><textarea class="table-input" id="databaseNewKomponenten" rows="2" placeholder="49266978 | DTM 75EPDM386 | 100"></textarea></td>
+                                <td></td>
                                 <td><button class="btn btn-primary" id="databaseAddArticleBtn" style="width: auto; white-space: nowrap;">+ Hinzufügen</button></td>
                             </tr>
                         </tbody>
@@ -560,7 +577,66 @@
                 </div>
                 <p id="databaseArticleNote" style="margin-top: 12px; font-size: 13px;"></p>
             </div>
+            <div class="card">
+                <h3>Werker-Konten (Shopfloor-Zugang)</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Eigener Login für <a href="/shopfloor" target="_blank" rel="noopener">/shopfloor</a> - getrennt von den Büro-Konten. Kürzel + PIN werden am Shopfloor-Bildschirm eingegeben.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Kürzel</th>
+                                <th>Name</th>
+                                <th>PIN</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" class="table-input" id="werkerNewKuerzel" placeholder="z.B. MH" maxlength="6"></td>
+                                <td><input type="text" class="table-input" id="werkerNewName" placeholder="Name"></td>
+                                <td><input type="password" class="table-input" id="werkerNewPin" placeholder="PIN" inputmode="numeric" maxlength="8"></td>
+                                <td><button class="btn btn-primary" id="werkerAddBtn" style="width: auto; white-space: nowrap;">+ Hinzufügen</button></td>
+                            </tr>
+                        </tbody>
+                        <tbody id="werkerTable"></tbody>
+                    </table>
+                </div>
+                <p id="werkerNote" style="margin-top: 12px; font-size: 13px;"></p>
+            </div>
         </div>
+    </div>
+</div>
+
+<div id="articleDetailModal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <button class="modal-close" id="articleDetailCloseBtn">✕</button>
+        <h3 id="articleDetailTitle"></h3>
+        <p class="modal-sub">Zeichnung und Produktionslenkungsplan für den Shopfloor</p>
+
+        <div class="modal-section">
+            <h4>Zeichnung</h4>
+            <div id="articleDetailZeichnungCurrent"></div>
+            <label class="upload-area" style="height: 90px;">
+                <div class="upload-text">📤 Zeichnung hochladen (PDF/Bild)</div>
+                <input type="file" id="articleDetailZeichnungFile" accept=".pdf,image/*">
+            </label>
+        </div>
+
+        <div class="modal-section">
+            <h4>Produktionslenkungsplan</h4>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr><th>Merkmal</th><th>Sollwert</th><th>Toleranz</th><th>Prüfmittel</th><th>Häufigkeit</th><th></th></tr>
+                    </thead>
+                    <tbody id="articleDetailPlpTable"></tbody>
+                </table>
+            </div>
+            <button class="btn btn-primary" id="articleDetailPlpAddBtn" style="width: auto; margin-top: 12px;">+ Zeile</button>
+        </div>
+
+        <button class="btn btn-primary" id="articleDetailSaveBtn">Speichern</button>
+        <p id="articleDetailNote" style="margin-top: 12px; font-size: 13px;"></p>
     </div>
 </div>
 
