@@ -1766,9 +1766,10 @@ document.getElementById('deleteAllOrdersBtnCnc')?.addEventListener('click', () =
 // Nächster freier Werktag für eine Maschine basierend auf dem tatsächlich
 // aktuell geplanten Bestand (nicht nur "heute"), damit ein manuell hinzugefügter
 // Auftrag hinter den bestehenden Aufträgen auf dieser Maschine eingereiht wird.
-function getMachineNextFree(maschineId) {
+function getMachineNextFree(maschineId, excludeOrderId = null) {
     const relevant = boardOrders.filter(o =>
-        o.phase === 'produktion' && o.endDatum && (o.maschineId === maschineId || o.maschineId2 === maschineId));
+        o.phase === 'produktion' && o.endDatum && o._id !== excludeOrderId
+        && (o.maschineId === maschineId || o.maschineId2 === maschineId));
     if (relevant.length === 0) return nextWeekday(new Date());
     const maxEnd = relevant.reduce((max, o) => {
         const d = new Date(o.endDatum);
@@ -1942,7 +1943,34 @@ function toDateInputValue(d) {
 async function setKomponenteDatum(orderId, idx, dateStr) {
     const order = boardOrders.find(o => o._id === orderId);
     if (!order || !order.komponenten?.[idx]) return;
+
+    const warBereitVorher = istKomponentenBereit(order);
     order.komponenten[idx].wareneingang = dateStr ? new Date(dateStr).toISOString() : null;
+    const istBereitJetzt = istKomponentenBereit(order);
+
+    const patchBody = { komponenten: order.komponenten };
+
+    // Wird ein Auftrag durch dieses Update produzierbar (alle Komponenten da),
+    // auf den tatsächlich nächsten freien Platz auf seiner Maschine schieben -
+    // der bisherige Termin wurde oft schon lange vorher vergeben, ohne
+    // Rücksicht darauf, wann die Komponenten wirklich verfügbar sind.
+    if (!warBereitVorher && istBereitJetzt && order.maschineId) {
+        const tage = Math.max(1, order.schichten || 1);
+        const frei1 = getMachineNextFree(order.maschineId, order._id);
+        const frei = order.maschineId2
+            ? (() => {
+                const frei2 = getMachineNextFree(order.maschineId2, order._id);
+                return frei1 > frei2 ? frei1 : frei2;
+            })()
+            : frei1;
+        order.startDatum = new Date(frei);
+        order.endDatum = addWorkdays(order.startDatum, tage - 1);
+        order.status = 'geplant';
+        patchBody.startDatum = order.startDatum;
+        patchBody.endDatum = order.endDatum;
+        patchBody.status = order.status;
+    }
+
     renderAll();
 
     try {
@@ -1952,7 +1980,7 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({ komponenten: order.komponenten }),
+            body: JSON.stringify(patchBody),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
