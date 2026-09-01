@@ -1243,10 +1243,49 @@ function renderAll() {
     renderAusgeliefert('PTFE');
 }
 
+// Auswertung, bei welchen Aufträgen in Produktion noch Komponenten fehlen -
+// genau die, die deshalb (noch) nicht im Zeitplan auftauchen (siehe
+// istKomponentenBereit-Filter dort).
+function renderFehlendeKomponenten(produktionOrders, suffix) {
+    const tbody = document.getElementById('fehlendeKomponenten' + suffix);
+    if (!tbody) return;
+
+    const offene = produktionOrders
+        .filter(o => !istKomponentenBereit(o))
+        .sort((a, b) => {
+            if (!a.lieferdatum && !b.lieferdatum) return 0;
+            if (!a.lieferdatum) return 1;
+            if (!b.lieferdatum) return -1;
+            return new Date(a.lieferdatum) - new Date(b.lieferdatum);
+        });
+
+    tbody.innerHTML = '';
+    if (offene.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color: #64748b;">Alle Aufträge in Produktion sind produzierbar.</td></tr>';
+        return;
+    }
+
+    offene.forEach(order => {
+        const tr = document.createElement('tr');
+        const fehlend = (order.komponenten || [])
+            .filter(k => !k.wareneingang)
+            .map(k => k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung}` : k.bezeichnung)
+            .join(', ');
+        [order.artikelnummer, order.auftragsnummer, order.beschreibung, fehlend, order.lieferdatum ? formatDateShort(order.lieferdatum) : ''].forEach(val => {
+            const td = document.createElement('td');
+            td.textContent = val;
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+}
+
 function renderBoard(dbType) {
     const suffix = DBTYPE_SUFFIX[dbType];
     const maschinenListe = MASCHINEN.filter(m => m.type === dbType);
     const produktionOrders = boardOrders.filter(o => (!o.phase || o.phase === 'produktion') && o.dbType === dbType);
+
+    renderFehlendeKomponenten(produktionOrders, suffix);
 
     if (produktionOrders.length === 0) {
         document.getElementById('machineGrid' + suffix).innerHTML = '';
