@@ -48,6 +48,9 @@ const artikelSchema = new mongoose.Schema({
   zeitProHundert: Number,
   komponenten: [komponenteSchema],
   zeichnung: { type: zeichnungSchema, default: null },
+  // Einstellparameter der Spritzgussmaschine (Temperaturen, Drücke, ...) -
+  // nur für Formgebung (Elastomer) relevant, gleiche Dateistruktur wie Zeichnung.
+  einstelldatenblatt: { type: zeichnungSchema, default: null },
   plp: [plpEintragSchema],
 }, { _id: false });
 

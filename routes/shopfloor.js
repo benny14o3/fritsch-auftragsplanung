@@ -111,6 +111,7 @@ router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
     res.json({
       order,
       zeichnung: artikel?.zeichnung || null,
+      einstelldatenblatt: artikel?.einstelldatenblatt || null,
       plp: artikel?.plp || [],
       erstfreigabeErforderlich: istErstfreigabeErforderlich(artikel),
       erstfreigabeOffen: istErstfreigabeOffen(order, artikel),

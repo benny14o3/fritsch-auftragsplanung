@@ -161,11 +161,17 @@ async function fetchDetail(orderId) {
 }
 
 function renderDetail() {
-    const { order, zeichnung, plp, erstfreigabeErforderlich, erstfreigabeOffen } = currentDetail;
+    const { order, zeichnung, einstelldatenblatt, plp, erstfreigabeErforderlich, erstfreigabeOffen } = currentDetail;
     document.getElementById('detailTitle').textContent = `${order.artikelnummer || '–'} · ${order.auftragsnummer || ''}`;
     document.getElementById('detailSub').textContent = `${order.beschreibung || ''} · Menge ${order.menge || '–'}`;
 
-    renderZeichnung(zeichnung);
+    renderDateiPreview('zeichnungBox', zeichnung, 'Keine Zeichnung hinterlegt.');
+    // Einstelldatenblatt gibt es nur für Formgebung (Elastomer) - Karte bei CNC ausblenden.
+    const einstelldatenblattCard = document.getElementById('einstelldatenblattCard');
+    einstelldatenblattCard.classList.toggle('hidden', order.dbType !== 'Elastomer');
+    if (order.dbType === 'Elastomer') {
+        renderDateiPreview('einstelldatenblattBox', einstelldatenblatt, 'Kein Einstelldatenblatt hinterlegt.');
+    }
     renderKomponenten(order);
     renderPlp(plp);
     renderErstfreigabe(order, plp, erstfreigabeErforderlich, erstfreigabeOffen);
@@ -198,18 +204,18 @@ function renderKomponenten(order) {
     `).join('');
 }
 
-function renderZeichnung(zeichnung) {
-    const box = document.getElementById('zeichnungBox');
-    if (!zeichnung || !zeichnung.data) {
-        box.innerHTML = '<div class="no-doc">Keine Zeichnung hinterlegt.</div>';
+function renderDateiPreview(boxId, datei, leerText) {
+    const box = document.getElementById(boxId);
+    if (!datei || !datei.data) {
+        box.innerHTML = `<div class="no-doc">${leerText}</div>`;
         return;
     }
-    const dataUrl = `data:${zeichnung.mimeType};base64,${zeichnung.data}`;
-    const isImage = zeichnung.mimeType.startsWith('image/');
+    const dataUrl = `data:${datei.mimeType};base64,${datei.data}`;
+    const isImage = datei.mimeType.startsWith('image/');
     box.innerHTML = `
         <div class="zeichnung-preview">
-            ${isImage ? `<img src="${dataUrl}" alt="Zeichnung">` : ''}
-            <div><a href="${dataUrl}" target="_blank" rel="noopener">${zeichnung.filename} öffnen ↗</a></div>
+            ${isImage ? `<img src="${dataUrl}" alt="${datei.filename}">` : ''}
+            <div><a href="${dataUrl}" target="_blank" rel="noopener">${datei.filename} öffnen ↗</a></div>
         </div>
     `;
 }

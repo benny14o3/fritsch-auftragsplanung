@@ -159,7 +159,9 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
 // Zeichnung (PDF/Bild) für einen Artikel hochladen bzw. entfernen - separat von
 // der PATCH-Route, weil die Datei als base64 deutlich größer ist als die
 // übrigen Felder.
-router.put('/materialien/:material/zeichnung', authMiddleware, adminMiddleware, async (req, res) => {
+// Zeichnung und Einstelldatenblatt sind strukturell dieselbe Datei-Ablage -
+// eine gemeinsame Route statt zweier fast identischer Handler.
+router.put('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const doc = await getOrCreateDoc();
     const entry = doc.artikel.find(a => a.material === req.params.material);
@@ -167,7 +169,7 @@ router.put('/materialien/:material/zeichnung', authMiddleware, adminMiddleware, 
 
     const { filename, mimeType, data } = req.body;
     if (!filename || !mimeType || !data) return res.status(400).json({ error: 'Datei unvollständig' });
-    entry.zeichnung = { filename, mimeType, data, uploadedAt: new Date() };
+    entry[req.params.feld] = { filename, mimeType, data, uploadedAt: new Date() };
 
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
@@ -176,12 +178,12 @@ router.put('/materialien/:material/zeichnung', authMiddleware, adminMiddleware, 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/materialien/:material/zeichnung', authMiddleware, adminMiddleware, async (req, res) => {
+router.delete('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const doc = await getOrCreateDoc();
     const entry = doc.artikel.find(a => a.material === req.params.material);
     if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
-    entry.zeichnung = null;
+    entry[req.params.feld] = null;
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();

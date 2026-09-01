@@ -633,7 +633,7 @@ function renderDatabaseTable() {
             const detailBtn = document.createElement('button');
             detailBtn.className = 'table-actions';
             detailBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
-            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
+            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
             detailBtn.title = 'Zeichnung & PLP';
             detailBtn.addEventListener('click', () => openArticleDetailModal(article.material));
             shopfloorTd.appendChild(detailBtn);
@@ -714,7 +714,7 @@ function renderDatabaseTable() {
             const shopfloorEditTd = document.createElement('td');
             const detailEditBtn = document.createElement('button');
             detailEditBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
-            detailEditBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
+            detailEditBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
             detailEditBtn.title = 'Zeichnung & PLP';
             detailEditBtn.addEventListener('click', () => openArticleDetailModal(article.material));
             shopfloorEditTd.appendChild(detailEditBtn);
@@ -869,9 +869,13 @@ function openArticleDetailModal(material) {
     articleDetailPlpRows = (article.plp || []).map(r => ({ ...r }));
     document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
     document.getElementById('articleDetailNote').textContent = '';
-    renderArticleDetailZeichnung(article.zeichnung);
+    renderArticleDetailDatei('zeichnung', article.zeichnung);
+    // Einstelldatenblatt (Spritzguss-Einstellparameter) ergibt nur bei Formgebung Sinn.
+    document.getElementById('articleDetailEinstelldatenblattSection').classList.toggle('hidden', article.dbType !== 'Elastomer');
+    renderArticleDetailDatei('einstelldatenblatt', article.einstelldatenblatt);
     renderArticleDetailPlp();
     document.getElementById('articleDetailZeichnungFile').value = '';
+    document.getElementById('articleDetailEinstelldatenblattFile').value = '';
     document.getElementById('articleDetailModal').classList.remove('hidden');
 }
 
@@ -880,26 +884,30 @@ function closeArticleDetailModal() {
     articleDetailMaterial = null;
 }
 
-function renderArticleDetailZeichnung(zeichnung) {
-    const box = document.getElementById('articleDetailZeichnungCurrent');
-    if (!zeichnung) {
-        box.innerHTML = '<div class="zeichnung-current">Keine Zeichnung hinterlegt.</div>';
+const ARTIKEL_DATEI_LABEL = { zeichnung: 'Zeichnung', einstelldatenblatt: 'Einstelldatenblatt' };
+
+// Zeichnung und Einstelldatenblatt sind strukturell dieselbe Datei-Ablage -
+// eine gemeinsame Anzeige-/Upload-/Löschlogik statt zweier fast identischer.
+function renderArticleDetailDatei(feld, datei) {
+    const box = document.getElementById(`articleDetail${feld[0].toUpperCase()}${feld.slice(1)}Current`);
+    if (!datei) {
+        box.innerHTML = `<div class="zeichnung-current">Kein${feld === 'zeichnung' ? 'e' : ''} ${ARTIKEL_DATEI_LABEL[feld]} hinterlegt.</div>`;
         return;
     }
     box.innerHTML = `
         <div class="zeichnung-current">
-            <span>📄 ${escapeHtml(zeichnung.filename)} (${new Date(zeichnung.uploadedAt).toLocaleDateString('de-DE')})</span>
-            <a href="data:${zeichnung.mimeType};base64,${zeichnung.data}" target="_blank" rel="noopener">öffnen</a>
-            <button id="articleDetailZeichnungRemoveBtn" style="font-size: 11px; padding: 4px 8px; border: 1px solid #fecaca; border-radius: 4px; background: #fef2f2; color: #b91c1c; cursor: pointer;">entfernen</button>
+            <span>📄 ${escapeHtml(datei.filename)} (${new Date(datei.uploadedAt).toLocaleDateString('de-DE')})</span>
+            <a href="data:${datei.mimeType};base64,${datei.data}" target="_blank" rel="noopener">öffnen</a>
+            <button data-datei-feld="${feld}" class="artikel-datei-remove-btn" style="font-size: 11px; padding: 4px 8px; border: 1px solid #fecaca; border-radius: 4px; background: #fef2f2; color: #b91c1c; cursor: pointer;">entfernen</button>
         </div>
     `;
-    document.getElementById('articleDetailZeichnungRemoveBtn')?.addEventListener('click', removeArticleZeichnung);
+    box.querySelector('.artikel-datei-remove-btn')?.addEventListener('click', () => removeArticleDetailDatei(feld));
 }
 
-async function removeArticleZeichnung() {
+async function removeArticleDetailDatei(feld) {
     if (!articleDetailMaterial) return;
     try {
-        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}/zeichnung`, {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}/${feld}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` },
         });
@@ -907,7 +915,7 @@ async function removeArticleZeichnung() {
         if (!res.ok) throw new Error(data.error);
         const idx = artikelstamm.artikel.findIndex(a => a.material === articleDetailMaterial);
         if (idx !== -1) artikelstamm.artikel[idx] = data;
-        renderArticleDetailZeichnung(null);
+        renderArticleDetailDatei(feld, null);
         renderDatabaseTable();
     } catch (err) {
         document.getElementById('articleDetailNote').textContent = 'Entfernen fehlgeschlagen.';
@@ -998,6 +1006,31 @@ function renderArticleDetailPlp() {
         });
 
         const actionTd = document.createElement('td');
+        actionTd.style.whiteSpace = 'nowrap';
+
+        // Die Reihenfolge hier ist die Reihenfolge auf dem Prozessbegleitschein/
+        // der Fehlersammelkarte - per ▲▼ statt Drag&Drop umsortierbar, da die
+        // Tabelle ohnehin schon breit ist.
+        const upBtn = document.createElement('button');
+        upBtn.textContent = '▲';
+        upBtn.title = 'Nach oben';
+        upBtn.disabled = idx === 0;
+        upBtn.style.cssText = 'font-size: 11px; padding: 5px 7px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; margin-right: 4px;';
+        upBtn.addEventListener('click', () => {
+            [articleDetailPlpRows[idx - 1], articleDetailPlpRows[idx]] = [articleDetailPlpRows[idx], articleDetailPlpRows[idx - 1]];
+            renderArticleDetailPlp();
+        });
+
+        const downBtn = document.createElement('button');
+        downBtn.textContent = '▼';
+        downBtn.title = 'Nach unten';
+        downBtn.disabled = idx === articleDetailPlpRows.length - 1;
+        downBtn.style.cssText = 'font-size: 11px; padding: 5px 7px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; margin-right: 4px;';
+        downBtn.addEventListener('click', () => {
+            [articleDetailPlpRows[idx + 1], articleDetailPlpRows[idx]] = [articleDetailPlpRows[idx], articleDetailPlpRows[idx + 1]];
+            renderArticleDetailPlp();
+        });
+
         const delBtn = document.createElement('button');
         delBtn.textContent = '🗑';
         delBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #fecaca; border-radius: 4px; background: #fef2f2; color: #b91c1c; cursor: pointer;';
@@ -1005,6 +1038,8 @@ function renderArticleDetailPlp() {
             articleDetailPlpRows.splice(idx, 1);
             renderArticleDetailPlp();
         });
+        actionTd.appendChild(upBtn);
+        actionTd.appendChild(downBtn);
         actionTd.appendChild(delBtn);
         tr.appendChild(actionTd);
         tbody.appendChild(tr);
@@ -1032,13 +1067,12 @@ document.getElementById('articleDetailAddMassBtn')?.addEventListener('click', ()
 
 document.getElementById('articleDetailCloseBtn')?.addEventListener('click', closeArticleDetailModal);
 
-document.getElementById('articleDetailZeichnungFile')?.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+async function uploadArticleDetailDatei(feld, file) {
     if (!file || !articleDetailMaterial) return;
     const note = document.getElementById('articleDetailNote');
     try {
         const base64 = await fileToBase64(file);
-        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}/zeichnung`, {
+        const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}/${feld}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ filename: file.name, mimeType: file.type || 'application/octet-stream', data: base64 }),
@@ -1047,15 +1081,18 @@ document.getElementById('articleDetailZeichnungFile')?.addEventListener('change'
         if (!res.ok) throw new Error(data.error);
         const idx = artikelstamm.artikel.findIndex(a => a.material === articleDetailMaterial);
         if (idx !== -1) artikelstamm.artikel[idx] = data;
-        renderArticleDetailZeichnung(data.zeichnung);
+        renderArticleDetailDatei(feld, data[feld]);
         renderDatabaseTable();
         note.style.color = '#15803d';
-        note.textContent = '✅ Zeichnung hochgeladen.';
+        note.textContent = `✅ ${ARTIKEL_DATEI_LABEL[feld]} hochgeladen.`;
     } catch (err) {
         note.style.color = '#b91c1c';
         note.textContent = 'Upload fehlgeschlagen.';
     }
-});
+}
+
+document.getElementById('articleDetailZeichnungFile')?.addEventListener('change', (e) => uploadArticleDetailDatei('zeichnung', e.target.files[0]));
+document.getElementById('articleDetailEinstelldatenblattFile')?.addEventListener('change', (e) => uploadArticleDetailDatei('einstelldatenblatt', e.target.files[0]));
 
 document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async () => {
     if (!articleDetailMaterial) return;
