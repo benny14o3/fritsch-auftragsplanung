@@ -497,7 +497,7 @@ async function saveDatabase(type, file, statusEl) {
         // data.articles (nicht das lokal geparste articles) hat die von Mongo
         // vergebenen _id's - die brauchen die Bearbeiten/Löschen-Aktionen in der Tabelle.
         plannerDBs[type] = data.articles;
-        renderDatabaseTable(type);
+        renderDatabaseTable();
         statusEl.textContent = `✅ ${articles.length} Artikel gespeichert (${new Date(data.lastUpdated).toLocaleString('de-DE')})`;
     } catch (err) {
         statusEl.textContent = '❌ Fehler: ' + err.message;
@@ -564,38 +564,42 @@ async function loadDatabaseStatus() {
             const statusEl = document.getElementById(db.type === 'Elastomer' ? 'elastomerStatus' : 'ptfeStatus');
             const text = `✅ ${db.articles.length} Artikel gespeichert (${new Date(db.lastUpdated).toLocaleString('de-DE')})`;
             if (statusEl) statusEl.textContent = text;
-            renderDatabaseTable(db.type);
         });
+        renderDatabaseTable();
     } catch (err) {
         // Datenbanken konnten nicht geladen werden, Status bleibt leer
     }
 }
 
 // Einzelne Artikel direkt in der Weboberfläche pflegen, ohne jedes Mal die
-// ganze Excel neu hochladen zu müssen. Nur ein Artikel gleichzeitig editierbar.
+// ganze Excel neu hochladen zu müssen. Elastomer und PTFE in einer gemeinsamen
+// Tabelle (mit Typ-Spalte) statt zwei getrennten - bleiben aber weiterhin zwei
+// getrennte Datenbanken/Uploads im Hintergrund. Nur ein Artikel gleichzeitig editierbar.
 let editingArticle = { type: null, id: null };
 
-function renderDatabaseTable(type) {
-    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
-    const tbody = document.getElementById(`${suffix}ArticleTable`);
+function renderDatabaseTable() {
+    const tbody = document.getElementById('databaseArticleTable');
     if (!tbody) return;
 
-    const filterEl = document.getElementById(`${suffix}Filter`);
-    const filterVal = (filterEl?.value || '').toLowerCase().trim();
-    const articles = plannerDBs[type] || [];
+    const filterVal = (document.getElementById('databaseFilter')?.value || '').toLowerCase().trim();
+    const alle = [
+        ...(plannerDBs.Elastomer || []).map(a => ({ ...a, _type: 'Elastomer' })),
+        ...(plannerDBs.PTFE || []).map(a => ({ ...a, _type: 'PTFE' })),
+    ];
     const filtered = filterVal
-        ? articles.filter(a => (a.material || '').toLowerCase().includes(filterVal) || (a.beschreibung || '').toLowerCase().includes(filterVal))
-        : articles;
+        ? alle.filter(a => (a.material || '').toLowerCase().includes(filterVal) || (a.beschreibung || '').toLowerCase().includes(filterVal))
+        : alle;
 
     tbody.innerHTML = '';
     filtered.forEach(article => {
+        const type = article._type;
         const isEditing = editingArticle.type === type && editingArticle.id === article._id;
         const tr = document.createElement('tr');
         const actionsTd = document.createElement('td');
         actionsTd.className = 'table-actions';
 
         if (!isEditing) {
-            [article.material, article.beschreibung, article.maschine, article.kavitaet ?? '', article.rundenProSchicht ?? '', article.zeitProHundert ?? ''].forEach(val => {
+            [type, article.material, article.beschreibung, article.maschine, article.kavitaet ?? '', article.rundenProSchicht ?? '', article.zeitProHundert ?? ''].forEach(val => {
                 const td = document.createElement('td');
                 td.textContent = val;
                 tr.appendChild(td);
@@ -606,7 +610,7 @@ function renderDatabaseTable(type) {
             editBtn.title = 'Bearbeiten';
             editBtn.addEventListener('click', () => {
                 editingArticle = { type, id: article._id };
-                renderDatabaseTable(type);
+                renderDatabaseTable();
             });
 
             const delBtn = document.createElement('button');
@@ -632,6 +636,10 @@ function renderDatabaseTable(type) {
             actionsTd.appendChild(editBtn);
             actionsTd.appendChild(delBtn);
         } else {
+            const typTd = document.createElement('td');
+            typTd.textContent = type;
+            tr.appendChild(typTd);
+
             const fields = [
                 { key: 'material', value: article.material, inputType: 'text' },
                 { key: 'beschreibung', value: article.beschreibung, inputType: 'text' },
@@ -672,7 +680,7 @@ function renderDatabaseTable(type) {
             cancelBtn.title = 'Abbrechen';
             cancelBtn.addEventListener('click', () => {
                 editingArticle = { type: null, id: null };
-                renderDatabaseTable(type);
+                renderDatabaseTable();
             });
 
             actionsTd.appendChild(saveBtn);
@@ -684,15 +692,15 @@ function renderDatabaseTable(type) {
     });
 }
 
-async function addDatabaseArticle(type) {
-    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
-    const note = document.getElementById(`${suffix}ArticleNote`);
-    const material = document.getElementById(`${suffix}NewMaterial`).value.trim();
-    const beschreibung = document.getElementById(`${suffix}NewBeschreibung`).value.trim();
-    const maschine = document.getElementById(`${suffix}NewMaschine`).value.trim();
-    const kavitaetStr = document.getElementById(`${suffix}NewKavitaet`).value;
-    const rundenStr = document.getElementById(`${suffix}NewRunden`).value;
-    const zeitStr = document.getElementById(`${suffix}NewZeit`).value;
+async function addDatabaseArticle() {
+    const note = document.getElementById('databaseArticleNote');
+    const type = document.getElementById('databaseNewType').value;
+    const material = document.getElementById('databaseNewMaterial').value.trim();
+    const beschreibung = document.getElementById('databaseNewBeschreibung').value.trim();
+    const maschine = document.getElementById('databaseNewMaschine').value.trim();
+    const kavitaetStr = document.getElementById('databaseNewKavitaet').value;
+    const rundenStr = document.getElementById('databaseNewRunden').value;
+    const zeitStr = document.getElementById('databaseNewZeit').value;
 
     note.style.color = '#b91c1c';
     if (!material) {
@@ -719,11 +727,11 @@ async function addDatabaseArticle(type) {
             return;
         }
         plannerDBs[type] = [...(plannerDBs[type] || []), data];
-        renderDatabaseTable(type);
+        renderDatabaseTable();
         note.style.color = '#15803d';
-        note.textContent = `✅ Artikel ${material} hinzugefügt.`;
+        note.textContent = `✅ Artikel ${material} (${type}) hinzugefügt.`;
         ['NewMaterial', 'NewBeschreibung', 'NewMaschine', 'NewKavitaet', 'NewRunden', 'NewZeit'].forEach(id => {
-            const el = document.getElementById(`${suffix}${id}`);
+            const el = document.getElementById(`database${id}`);
             if (el) el.value = '';
         });
     } catch (err) {
@@ -732,8 +740,7 @@ async function addDatabaseArticle(type) {
 }
 
 async function saveEditArticle(type, articleId, updates) {
-    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
-    const note = document.getElementById(`${suffix}ArticleNote`);
+    const note = document.getElementById('databaseArticleNote');
     try {
         const res = await fetch(`${API_URL}/databases/${type}/articles/${articleId}`, {
             method: 'PATCH',
@@ -750,7 +757,7 @@ async function saveEditArticle(type, articleId, updates) {
         const idx = list.findIndex(a => a._id === articleId);
         if (idx !== -1) list[idx] = data;
         editingArticle = { type: null, id: null };
-        renderDatabaseTable(type);
+        renderDatabaseTable();
         note.style.color = '#15803d';
         note.textContent = '✅ Artikel gespeichert.';
     } catch (err) {
@@ -760,8 +767,7 @@ async function saveEditArticle(type, articleId, updates) {
 }
 
 async function deleteDatabaseArticle(type, articleId) {
-    const suffix = type === 'Elastomer' ? 'elastomer' : 'ptfe';
-    const note = document.getElementById(`${suffix}ArticleNote`);
+    const note = document.getElementById('databaseArticleNote');
     try {
         const res = await fetch(`${API_URL}/databases/${type}/articles/${articleId}`, {
             method: 'DELETE',
@@ -769,7 +775,7 @@ async function deleteDatabaseArticle(type, articleId) {
         });
         if (!res.ok) throw new Error();
         plannerDBs[type] = (plannerDBs[type] || []).filter(a => a._id !== articleId);
-        renderDatabaseTable(type);
+        renderDatabaseTable();
         note.style.color = '#15803d';
         note.textContent = 'Artikel gelöscht.';
     } catch (err) {
@@ -778,10 +784,8 @@ async function deleteDatabaseArticle(type, articleId) {
     }
 }
 
-document.getElementById('elastomerAddArticleBtn')?.addEventListener('click', () => addDatabaseArticle('Elastomer'));
-document.getElementById('ptfeAddArticleBtn')?.addEventListener('click', () => addDatabaseArticle('PTFE'));
-document.getElementById('elastomerFilter')?.addEventListener('input', () => renderDatabaseTable('Elastomer'));
-document.getElementById('ptfeFilter')?.addEventListener('input', () => renderDatabaseTable('PTFE'));
+document.getElementById('databaseAddArticleBtn')?.addEventListener('click', addDatabaseArticle);
+document.getElementById('databaseFilter')?.addEventListener('input', renderDatabaseTable);
 
 // Stückliste (BOM) direkt in der Weboberfläche pflegen - jede Zeile im
 // Komponenten-Textfeld ist "Artikelnummer | Bezeichnung | Menge".
@@ -1429,6 +1433,7 @@ function renderBoard(dbType) {
     if (produktionOrders.length === 0) {
         document.getElementById('machineGrid' + suffix).innerHTML = '';
         document.getElementById('kanbanBoard' + suffix).innerHTML = '<p style="color: #64748b;">Noch keine Aufträge geplant. Lade im Auftragsimport eine Aufträge-Excel hoch.</p>';
+        updateKanbanScrollbarWidth(suffix);
         renderGantt([], dbType);
         return;
     }
@@ -1489,6 +1494,9 @@ function renderBoard(dbType) {
                 addCardAction(card, '🔧 Endbearbeitung', () => movePhase(order._id, 'endbearbeitung'));
                 addCardAction(card, '📦 Ausgeliefert', () => movePhase(order._id, 'ausgeliefert'), 'primary');
             }
+            const zielDbType = order.dbType === 'Elastomer' ? 'PTFE' : 'Elastomer';
+            const zielLabel = zielDbType === 'PTFE' ? 'CNC' : 'Formgebung';
+            addCardAction(card, `↔ Zu ${zielLabel} verschieben`, () => moveToOtherDepartment(order._id, zielDbType));
             addDeleteAction(card, order._id);
 
             handle.addEventListener('dragstart', (e) => {
@@ -1541,6 +1549,38 @@ function renderBoard(dbType) {
 
     const statusEl = document.getElementById('boardSyncStatus' + suffix);
     if (statusEl) statusEl.textContent = `Zuletzt aktualisiert: ${new Date().toLocaleTimeString('de-DE')}`;
+    updateKanbanScrollbarWidth(suffix);
+}
+
+// Der native horizontale Scrollbalken sitzt am unteren Rand des Boards - bei
+// vielen Karten liegt der weit unterhalb des sichtbaren Bereichs. Stattdessen
+// oben eine schmale, künstliche Scrollleiste anzeigen, deren Breite auf die
+// tatsächliche Board-Breite gesetzt und deren Scrollposition mit dem Board
+// synchron gehalten wird (in beide Richtungen).
+function updateKanbanScrollbarWidth(suffix) {
+    const board = document.getElementById('kanbanBoard' + suffix);
+    const scrollTop = document.getElementById('kanbanScrollTop' + suffix);
+    if (!board || !scrollTop) return;
+    scrollTop.firstElementChild.style.width = `${board.scrollWidth}px`;
+}
+
+function initKanbanScrollbarSync(suffix) {
+    const board = document.getElementById('kanbanBoard' + suffix);
+    const scrollTop = document.getElementById('kanbanScrollTop' + suffix);
+    if (!board || !scrollTop) return;
+    let syncing = false;
+    scrollTop.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true;
+        board.scrollLeft = scrollTop.scrollLeft;
+        syncing = false;
+    });
+    board.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true;
+        scrollTop.scrollLeft = board.scrollLeft;
+        syncing = false;
+    });
 }
 
 // Zeitplan: KW + Mo-Fr fixiert links (sticky), Maschinen als Spalten, Aufträge als
@@ -1798,6 +1838,43 @@ async function movePhase(orderId, phase) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify(patchBody),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// Auftrag zwischen Formgebung und CNC umhängen - beide Bereiche haben komplett
+// unterschiedliche Maschinen, deshalb Maschine/Termine zurücksetzen und im
+// Zielbereich unter "Nicht zugewiesen" landen lassen, statt eine falsche
+// Zuordnung zu übernehmen.
+async function moveToOtherDepartment(orderId, zielDbType) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+
+    order.dbType = zielDbType;
+    order.maschineId = null;
+    order.maschineId2 = null;
+    order.startDatum = null;
+    order.endDatum = null;
+    order.status = 'ausstehend';
+    renderAll();
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                dbType: zielDbType,
+                maschineId: null,
+                maschineId2: null,
+                startDatum: null,
+                endDatum: null,
+                status: 'ausstehend',
+            }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
@@ -2213,6 +2290,8 @@ function enableHorizontalWheelScroll(el) {
 }
 enableHorizontalWheelScroll(document.getElementById('kanbanBoardFormgebung'));
 enableHorizontalWheelScroll(document.getElementById('kanbanBoardCnc'));
+initKanbanScrollbarSync('Formgebung');
+initKanbanScrollbarSync('Cnc');
 document.querySelectorAll('.gantt-wrapper').forEach(enableHorizontalWheelScroll);
 
 initSession();
