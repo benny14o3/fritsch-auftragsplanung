@@ -1989,13 +1989,12 @@ function renderGantt(orders, dbType) {
 
     grid.innerHTML = '';
     // Formgebung hat nur 4 Maschinen (statt 10 bei CNC) - dafür ist mehr Platz,
-    // sodass die Balkeninhalte (Artikel/Auftrag/Bezeichnung/Lieferwoche) nicht
-    // gequetscht wirken.
-    const spaltenBreite = dbType === 'Elastomer' ? 220 : 150;
+    // sodass die Balkeninhalte nicht gequetscht wirken.
+    const spaltenBreite = dbType === 'Elastomer' ? 260 : 180;
     grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, ${spaltenBreite}px)`;
-    // 100px pro Tag, damit auch ein 1-Tages-Balken mit allen vier Zeilen
-    // (Artikel, Auftrag, Bezeichnung über 2 Zeilen, Lieferwoche) Platz hat.
-    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 100px)`;
+    // 60px pro Tag reicht für die jetzt max. 3 einzeiligen Balkenzeilen - damit
+    // passen ~4 Arbeitswochen (20 Werktage) ohne Scrollen in den Zeitplan.
+    grid.style.gridTemplateRows = `32px repeat(${tage.length}, 60px)`;
 
     const ecke = document.createElement('div');
     ecke.className = 'gantt-corner';
@@ -2077,16 +2076,17 @@ function renderGantt(orders, dbType) {
             const lieferwoche = formatLieferwoche(o.lieferdatum);
             // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
             const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
-            // Artikelnummer, Auftragsnummer, Bezeichnung und Lieferwoche als eigene
-            // Zeilen/Zellen - die Tageszeile (siehe GANTT_TAG_HOEHE) ist bewusst hoch
-            // genug bemessen, damit auch bei 1-Tages-Balken alle vier Zeilen Platz
-            // haben und nicht durch overflow:hidden abgeschnitten werden.
+            // Kompakt auf max. 3 einzeilige Zeilen (statt 4 teils zweizeiligen) -
+            // Artikel+Auftrag zusammen, Bezeichnung einzeilig mit Ellipsis, Liefer-
+            // woche + evtl. Warnungen in einer Statuszeile. Damit reicht eine
+            // niedrigere Tageszeile aus, ohne dass Inhalt abgeschnitten wird.
+            const statusTeile = [];
+            if (lieferwoche) statusTeile.push(`${zuSpaet ? '⚠ ' : ''}${lieferwoche}`);
+            if (fehlendeKomponenten) statusTeile.push('⚠ Komponenten fehlen');
             bar.innerHTML = `
-                <div class="gantt-bar-zelle gantt-bar-artikel">${escapeHtml(o.artikelnummer)}</div>
-                <div class="gantt-bar-zelle gantt-bar-auftrag">Auftrag ${escapeHtml(o.auftragsnummer)}</div>
+                <div class="gantt-bar-zelle gantt-bar-kopf">${escapeHtml(o.artikelnummer)} · ${escapeHtml(o.auftragsnummer)}</div>
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
-                ${lieferwoche ? `<div class="gantt-bar-zelle gantt-bar-lieferwoche${zuSpaet ? ' spaet' : ''}">${zuSpaet ? '⚠ ' : ''}Liefertermin ${lieferwoche}</div>` : ''}
-                ${fehlendeKomponenten ? `<div class="gantt-bar-zelle gantt-bar-manuell">⚠ Komponenten fehlen noch</div>` : ''}
+                ${statusTeile.length ? `<div class="gantt-bar-zelle gantt-bar-status${zuSpaet ? ' spaet' : ''}">${statusTeile.join(' · ')}</div>` : ''}
             `;
             bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;

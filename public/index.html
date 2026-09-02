@@ -139,8 +139,8 @@
         .warenausgang-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
 
         /* Zeitplan: KW/Tage fixiert links, Maschinen als Spalten, Balken = Produktionsdauer */
-        /* ~4 Arbeitswochen (20 Werktage à 100px + Kopfzeile) auf einen Blick, ohne scrollen zu müssen. */
-        .gantt-wrapper { overflow: auto; max-height: 2050px; border: 1px solid #e2e8f0; border-radius: 8px; }
+        /* ~4 Arbeitswochen (20 Werktage à 60px + Kopfzeile) auf einen Blick, ohne scrollen zu müssen. */
+        .gantt-wrapper { overflow: auto; max-height: 1250px; border: 1px solid #e2e8f0; border-radius: 8px; }
         .gantt-grid { display: grid; position: relative; width: max-content; }
         .gantt-corner { position: sticky; top: 0; left: 0; z-index: 3; background: white; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
         .gantt-machine-header { position: sticky; top: 0; z-index: 2; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; font-weight: 600; padding: 4px; }
@@ -155,14 +155,12 @@
         .gantt-bar.dragging { opacity: 0.4; }
         /* Artikelnummer, Auftragsnummer und Bezeichnung als eigene "Zellen" mit
            dezenter Trennlinie, statt in einer Zeile zusammengedrängt zu sein. */
-        .gantt-bar-zelle { padding: 3px 5px; border-top: 1px solid rgba(255,255,255,0.25); }
+        .gantt-bar-zelle { padding: 2px 6px; line-height: 1.15; border-top: 1px solid rgba(255,255,255,0.25); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .gantt-bar-zelle:first-child { border-top: none; }
-        .gantt-bar-artikel { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .gantt-bar-auftrag { color: rgba(255,255,255,0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .gantt-bar-desc { color: rgba(255,255,255,0.95); white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-        .gantt-bar-lieferwoche { color: rgba(255,255,255,0.85); }
-        .gantt-bar-lieferwoche.spaet { color: #fff; font-weight: 700; }
-        .gantt-bar-manuell { color: #422006; font-weight: 700; }
+        .gantt-bar-kopf { font-weight: 700; }
+        .gantt-bar-desc { color: rgba(255,255,255,0.95); }
+        .gantt-bar-status { color: rgba(255,255,255,0.85); }
+        .gantt-bar-status.spaet { color: #fff; font-weight: 700; }
 
         input[type="file"] { display: none; }
 
