@@ -2673,4 +2673,86 @@ initKanbanScrollbarSync('Formgebung');
 initKanbanScrollbarSync('Cnc');
 document.querySelectorAll('.gantt-wrapper').forEach(enableHorizontalWheelScroll);
 
+// --- Sidebar-Suche: Auftrag/Artikel finden und zur Auftragskartei springen ---
+
+const PHASE_PAGE_PREFIX = { produktion: 'board', endbearbeitung: 'endbearbeitung', ausgeliefert: 'ausgeliefert' };
+
+function sidebarSearchErgebnisse(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return boardOrders
+        .filter(o => (o.auftragsnummer || '').toLowerCase().includes(q) || (o.artikelnummer || '').toLowerCase().includes(q))
+        .slice(0, 8);
+}
+
+function renderSidebarSearchResults(ergebnisse) {
+    const box = document.getElementById('sidebarSearchResults');
+    if (ergebnisse.length === 0) {
+        box.innerHTML = '<div class="sidebar-search-empty">Keine Treffer.</div>';
+        box.classList.remove('hidden');
+        return;
+    }
+    box.innerHTML = '';
+    ergebnisse.forEach(order => {
+        const bereich = DBTYPE_SUFFIX[order.dbType] === 'Cnc' ? 'CNC' : 'Formgebung';
+        const phaseLabel = order.phase === 'endbearbeitung' ? 'Endbearbeitung' : order.phase === 'ausgeliefert' ? 'Ausgeliefert' : 'Planungsboard';
+        const el = document.createElement('div');
+        el.className = 'sidebar-search-result';
+        el.innerHTML = `
+            <div class="ssr-titel">${escapeHtml(order.artikelnummer || '–')} · ${escapeHtml(order.auftragsnummer || '')}</div>
+            <div class="ssr-meta">${bereich} · ${phaseLabel}${order.beschreibung ? ' · ' + escapeHtml(order.beschreibung) : ''}</div>
+        `;
+        el.addEventListener('click', () => springZuAuftrag(order));
+        box.appendChild(el);
+    });
+    box.classList.remove('hidden');
+}
+
+// Springt zur Auftragskartei (Kanban-Karte) - wechselt zuerst auf die richtige
+// Board-Seite (Formgebung/CNC × Planungsboard/Endbearbeitung/Ausgeliefert),
+// scrollt die Karte dann in den sichtbaren Bereich und hebt sie kurz hervor.
+function springZuAuftrag(order) {
+    const prefix = PHASE_PAGE_PREFIX[order.phase] || 'board';
+    const page = prefix + DBTYPE_SUFFIX[order.dbType];
+    showPage(page);
+    document.getElementById('sidebarSearchInput').value = '';
+    document.getElementById('sidebarSearchResults').classList.add('hidden');
+
+    // Die Karte steht durch renderAll() i.d.R. schon im DOM (auch auf gerade
+    // verdeckten Seiten vorgerendert) - kurz nachschauen, falls showPage()
+    // parallel gerade erst neu lädt.
+    let versuche = 0;
+    const suchen = () => {
+        const karte = document.querySelector(`[data-order-id="${order._id}"]`);
+        if (karte) {
+            karte.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+            karte.classList.add('karte-hervorgehoben');
+            setTimeout(() => karte.classList.remove('karte-hervorgehoben'), 1800);
+        } else if (versuche < 10) {
+            versuche++;
+            setTimeout(suchen, 200);
+        }
+    };
+    suchen();
+}
+
+document.getElementById('sidebarSearchInput')?.addEventListener('input', (e) => {
+    renderSidebarSearchResults(sidebarSearchErgebnisse(e.target.value));
+});
+document.getElementById('sidebarSearchInput')?.addEventListener('focus', (e) => {
+    if (e.target.value.trim()) renderSidebarSearchResults(sidebarSearchErgebnisse(e.target.value));
+});
+document.getElementById('sidebarSearchInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        e.target.value = '';
+        document.getElementById('sidebarSearchResults').classList.add('hidden');
+    } else if (e.key === 'Enter') {
+        const erster = sidebarSearchErgebnisse(e.target.value)[0];
+        if (erster) springZuAuftrag(erster);
+    }
+});
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.sidebar-search')) document.getElementById('sidebarSearchResults')?.classList.add('hidden');
+});
+
 initSession();
