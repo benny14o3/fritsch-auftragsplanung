@@ -96,6 +96,8 @@ const orderSchema = new mongoose.Schema({
   // sind (siehe istKomponentenBereit) - der Balken erscheint dann gelb statt
   // ausgeblendet zu werden, bis die Komponenten wirklich vollständig sind.
   manuellEingeplant: { type: Boolean, default: false },
+  // Freies Notizfeld je Auftrag, z.B. für Absprachen oder Besonderheiten.
+  kommentar: { type: String, default: '' },
   fehlersammelkarte: [fehlerEintragSchema],
   laufzettel: [laufzettelEintragSchema],
   massungen: [massungSchema],

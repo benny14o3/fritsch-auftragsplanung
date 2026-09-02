@@ -26,6 +26,8 @@
         .btn-primary:hover { background-color: #15803d; }
         .btn.danger { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; width: auto; }
         .btn.danger:hover { background-color: #fee2e2; }
+        .btn-secondary { background: #f1f5f9; color: #334155; }
+        .btn-secondary:hover { background: #e2e8f0; }
         .error { background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; margin-bottom: 16px; color: #991b1b; font-size: 13px; }
         .auth-toggle { text-align: center; margin-top: 20px; font-size: 14px; color: #64748b; }
         .auth-toggle a { color: #16a34a; cursor: pointer; font-weight: 600; text-decoration: underline; }
@@ -113,8 +115,11 @@
         .kanban-card-desc { color: #475569; margin-bottom: 4px; }
         .kanban-card-parallel { color: #7c3aed; margin-bottom: 4px; }
         .kanban-card-meta { color: #64748b; }
+        .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
+        .kanban-card-kommentar::placeholder { color: #cbd5e1; }
         .kanban-card-komponenten { margin: 6px 0; padding: 6px; background: #fef2f2; border-radius: 4px; }
         .kanban-card-komponenten.komplett { background: #f0fdf4; }
+        .kanban-card-fehlt { font-size: 11px; font-weight: 700; color: #b91c1c; margin-bottom: 4px; }
         .komponente-zeile-gruppe { padding: 2px 0; }
         .komponente-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
         .komponente-zeile span { flex: 1; min-width: 0; }
@@ -134,7 +139,8 @@
         .warenausgang-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
 
         /* Zeitplan: KW/Tage fixiert links, Maschinen als Spalten, Balken = Produktionsdauer */
-        .gantt-wrapper { overflow: auto; max-height: 560px; border: 1px solid #e2e8f0; border-radius: 8px; }
+        /* ~4 Arbeitswochen (20 Werktage à 100px + Kopfzeile) auf einen Blick, ohne scrollen zu müssen. */
+        .gantt-wrapper { overflow: auto; max-height: 2050px; border: 1px solid #e2e8f0; border-radius: 8px; }
         .gantt-grid { display: grid; position: relative; width: max-content; }
         .gantt-corner { position: sticky; top: 0; left: 0; z-index: 3; background: white; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
         .gantt-machine-header { position: sticky; top: 0; z-index: 2; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11px; font-weight: 600; padding: 4px; }
@@ -395,21 +401,26 @@
                 </div>
             </div>
             <div class="card">
-                <h3>Fehlende Komponenten</h3>
-                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Aufträge in Produktion, bei denen noch nicht alle Komponenten als eingegangen markiert sind - deshalb (noch) nicht im Zeitplan.</p>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Artikelnummer</th>
-                                <th>Auftragsnummer</th>
-                                <th>Bezeichnung</th>
-                                <th>Fehlende Komponenten</th>
-                                <th>Liefertermin</th>
-                            </tr>
-                        </thead>
-                        <tbody id="fehlendeKomponentenFormgebung"></tbody>
-                    </table>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <h3>Fehlende Komponenten</h3>
+                    <button class="btn btn-secondary fehlende-komponenten-toggle" style="width: auto;" data-suffix="Formgebung">ein-/ausblenden</button>
+                </div>
+                <div id="fehlendeKomponentenBoxFormgebung">
+                    <p style="color: #64748b; margin: 16px 0; font-size: 13px;">Aufträge in Produktion, bei denen noch nicht alle Komponenten als eingegangen markiert sind - deshalb (noch) nicht im Zeitplan.</p>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Artikelnummer</th>
+                                    <th>Auftragsnummer</th>
+                                    <th>Bezeichnung</th>
+                                    <th>Fehlende Komponenten</th>
+                                    <th>Liefertermin</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fehlendeKomponentenFormgebung"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">
@@ -443,21 +454,26 @@
                 </div>
             </div>
             <div class="card">
-                <h3>Fehlende Komponenten</h3>
-                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Aufträge in Produktion, bei denen noch nicht alle Komponenten als eingegangen markiert sind - deshalb (noch) nicht im Zeitplan.</p>
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Artikelnummer</th>
-                                <th>Auftragsnummer</th>
-                                <th>Bezeichnung</th>
-                                <th>Fehlende Komponenten</th>
-                                <th>Liefertermin</th>
-                            </tr>
-                        </thead>
-                        <tbody id="fehlendeKomponentenCnc"></tbody>
-                    </table>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <h3>Fehlende Komponenten</h3>
+                    <button class="btn btn-secondary fehlende-komponenten-toggle" style="width: auto;" data-suffix="Cnc">ein-/ausblenden</button>
+                </div>
+                <div id="fehlendeKomponentenBoxCnc">
+                    <p style="color: #64748b; margin: 16px 0; font-size: 13px;">Aufträge in Produktion, bei denen noch nicht alle Komponenten als eingegangen markiert sind - deshalb (noch) nicht im Zeitplan.</p>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Artikelnummer</th>
+                                    <th>Auftragsnummer</th>
+                                    <th>Bezeichnung</th>
+                                    <th>Fehlende Komponenten</th>
+                                    <th>Liefertermin</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fehlendeKomponentenCnc"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             <div class="card">

@@ -93,6 +93,7 @@ function showApp() {
     document.querySelectorAll('.admin-only').forEach(el => {
         el.classList.toggle('hidden', currentUser.role !== 'admin');
     });
+    initFehlendeKomponentenToggle();
     loadExistingBoard();
 }
 
@@ -1532,7 +1533,9 @@ async function saveOrdersToBackend(orders) {
 // in der Chargennummer verwerfen.
 function isEditingDateInput() {
     const el = document.activeElement;
-    return !!el && el.tagName === 'INPUT' && (el.type === 'date' || el.classList.contains('komp-charge'));
+    if (!el) return false;
+    if (el.tagName === 'INPUT') return el.type === 'date' || el.classList.contains('komp-charge');
+    return el.tagName === 'TEXTAREA' && el.classList.contains('kanban-card-kommentar');
 }
 
 async function fetchBoard() {
@@ -1594,10 +1597,15 @@ function buildCardElement(order, { spalte = null } = {}) {
                 ${chargeInput}
             </div>`;
         }).join('');
-        komponentenHtml = `<div class="kanban-card-komponenten ${komplett ? 'komplett' : ''}">${zeilen}</div>`;
+        // Automatischer Hinweis, welche Komponenten fehlen - auf einen Blick statt
+        // jede Zeile einzeln nach dem ⭕-Symbol absuchen zu müssen.
+        const fehltHinweis = komplett ? '' : `<div class="kanban-card-fehlt">⚠ Fehlt: ${escapeHtml(fehlendeKomponentenText(order))}</div>`;
+        komponentenHtml = `<div class="kanban-card-komponenten ${komplett ? 'komplett' : ''}">${fehltHinweis}${zeilen}</div>`;
     }
 
-    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${order.menge} Stk · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>`;
+    const kommentarHtml = `<textarea class="kanban-card-kommentar" placeholder="Kommentar...">${escapeHtml(order.kommentar || '')}</textarea>`;
+
+    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${order.menge} Stk · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>${kommentarHtml}`;
 
     card.querySelectorAll('.komp-date').forEach(input => {
         input.draggable = false;
@@ -1627,6 +1635,17 @@ function buildCardElement(order, { spalte = null } = {}) {
             setKomponenteCharge(order._id, parseInt(input.dataset.kompIndex), input.value);
         });
     });
+
+    const kommentarInput = card.querySelector('.kanban-card-kommentar');
+    if (kommentarInput) {
+        kommentarInput.draggable = false;
+        kommentarInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        kommentarInput.addEventListener('click', (e) => e.stopPropagation());
+        kommentarInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            setKommentar(order._id, kommentarInput.value);
+        });
+    }
 
     return card;
 }
@@ -1690,6 +1709,16 @@ function renderAll() {
     renderAusgeliefert('PTFE');
 }
 
+// Kommagetrennte Liste der noch fehlenden Komponenten eines Auftrags - sowohl
+// für die Tabelle "Fehlende Komponenten" als auch für den automatischen
+// Hinweis direkt auf der Kanban-Karte.
+function fehlendeKomponentenText(order) {
+    return (order.komponenten || [])
+        .filter(k => !k.wareneingang)
+        .map(k => k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung}` : k.bezeichnung)
+        .join(', ');
+}
+
 // Auswertung, bei welchen Aufträgen in Produktion noch Komponenten fehlen -
 // genau die, die deshalb (noch) nicht im Zeitplan auftauchen (siehe
 // istKomponentenBereit-Filter dort).
@@ -1714,16 +1743,28 @@ function renderFehlendeKomponenten(produktionOrders, suffix) {
 
     offene.forEach(order => {
         const tr = document.createElement('tr');
-        const fehlend = (order.komponenten || [])
-            .filter(k => !k.wareneingang)
-            .map(k => k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung}` : k.bezeichnung)
-            .join(', ');
-        [order.artikelnummer, order.auftragsnummer, order.beschreibung, fehlend, order.lieferdatum ? formatDateShort(order.lieferdatum) : ''].forEach(val => {
+        [order.artikelnummer, order.auftragsnummer, order.beschreibung, fehlendeKomponentenText(order), order.lieferdatum ? formatDateShort(order.lieferdatum) : ''].forEach(val => {
             const td = document.createElement('td');
             td.textContent = val;
             tr.appendChild(td);
         });
         tbody.appendChild(tr);
+    });
+}
+
+// Ein-/Ausklappen der "Fehlende Komponenten"-Karte, Zustand bleibt über
+// localStorage auch nach einem Neuladen erhalten.
+function initFehlendeKomponentenToggle() {
+    document.querySelectorAll('.fehlende-komponenten-toggle').forEach(btn => {
+        const suffix = btn.dataset.suffix;
+        const box = document.getElementById('fehlendeKomponentenBox' + suffix);
+        if (!box) return;
+        const key = `fehlendeKomponentenEingeklappt${suffix}`;
+        if (localStorage.getItem(key) === '1') box.classList.add('hidden');
+        btn.addEventListener('click', () => {
+            const eingeklappt = box.classList.toggle('hidden');
+            localStorage.setItem(key, eingeklappt ? '1' : '0');
+        });
     });
 }
 
@@ -1947,7 +1988,11 @@ function renderGantt(orders, dbType) {
     const wochen = groupByWeek(tage);
 
     grid.innerHTML = '';
-    grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, 150px)`;
+    // Formgebung hat nur 4 Maschinen (statt 10 bei CNC) - dafür ist mehr Platz,
+    // sodass die Balkeninhalte (Artikel/Auftrag/Bezeichnung/Lieferwoche) nicht
+    // gequetscht wirken.
+    const spaltenBreite = dbType === 'Elastomer' ? 220 : 150;
+    grid.style.gridTemplateColumns = `40px 46px repeat(${maschinenListe.length}, ${spaltenBreite}px)`;
     // 100px pro Tag, damit auch ein 1-Tages-Balken mit allen vier Zeilen
     // (Artikel, Auftrag, Bezeichnung über 2 Zeilen, Lieferwoche) Platz hat.
     grid.style.gridTemplateRows = `32px repeat(${tage.length}, 100px)`;
@@ -2553,6 +2598,28 @@ async function setManuellEingeplant(orderId, wert) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify({ manuellEingeplant: wert }),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// Freier Kommentar je Auftrag - bewusst kein renderAll() nach dem Setzen (anders
+// als bei setManuellEingeplant), damit der Textbereich beim Tippen nicht neu
+// aufgebaut wird und den Fokus/die Cursor-Position verliert.
+async function setKommentar(orderId, kommentar) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.kommentar = kommentar;
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ kommentar }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
