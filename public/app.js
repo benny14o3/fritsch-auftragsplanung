@@ -2681,7 +2681,9 @@ function sidebarSearchErgebnisse(query) {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return boardOrders
-        .filter(o => (o.auftragsnummer || '').toLowerCase().includes(q) || (o.artikelnummer || '').toLowerCase().includes(q))
+        .filter(o => (o.auftragsnummer || '').toLowerCase().includes(q)
+            || (o.artikelnummer || '').toLowerCase().includes(q)
+            || (o.beschreibung || '').toLowerCase().includes(q))
         .slice(0, 8);
 }
 
