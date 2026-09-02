@@ -92,6 +92,10 @@ const orderSchema = new mongoose.Schema({
   phase: { type: String, enum: ['produktion', 'endbearbeitung', 'ausgeliefert'], default: 'produktion' },
   warenausgang: { type: Date, default: null },
   position: { type: Number, default: 0 },
+  // Manuell in den Zeitplan aufgenommen, obwohl noch nicht alle Komponenten da
+  // sind (siehe istKomponentenBereit) - der Balken erscheint dann gelb statt
+  // ausgeblendet zu werden, bis die Komponenten wirklich vollständig sind.
+  manuellEingeplant: { type: Boolean, default: false },
   fehlersammelkarte: [fehlerEintragSchema],
   laufzettel: [laufzettelEintragSchema],
   massungen: [massungSchema],

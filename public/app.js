@@ -1798,6 +1798,15 @@ function renderBoard(dbType) {
                 addCardAction(card, '🔧 Endbearbeitung', () => movePhase(order._id, 'endbearbeitung'));
                 addCardAction(card, '📦 Ausgeliefert', () => movePhase(order._id, 'ausgeliefert'), 'primary');
             }
+            // Trotz fehlender Komponenten schon in den Zeitplan aufnehmen (z.B. wenn
+            // sicher ist, dass sie rechtzeitig eintreffen) - erscheint dort gelb.
+            if (!istKomponentenBereit(order) && order.maschineId) {
+                if (order.manuellEingeplant) {
+                    addCardAction(card, '↩ Aus Zeitplan nehmen', () => setManuellEingeplant(order._id, false));
+                } else {
+                    addCardAction(card, '📅 Trotzdem einplanen', () => setManuellEingeplant(order._id, true));
+                }
+            }
             const zielDbType = order.dbType === 'Elastomer' ? 'PTFE' : 'Elastomer';
             const zielLabel = zielDbType === 'PTFE' ? 'CNC' : 'Formgebung';
             addCardAction(card, `↔ Zu ${zielLabel} verschieben`, () => moveToOtherDepartment(order._id, zielDbType));
@@ -1930,8 +1939,10 @@ function renderGantt(orders, dbType) {
     const grid = document.getElementById('ganttGrid' + suffix);
     if (!grid) return;
 
-    // Nur produzierbare Aufträge (alle Komponenten da) im Zeitplan zeigen.
-    const mitTerminen = orders.filter(o => o.startDatum && o.endDatum && istKomponentenBereit(o));
+    // Nur produzierbare Aufträge (alle Komponenten da) im Zeitplan zeigen - oder
+    // manuell trotz fehlender Komponenten eingeplante (siehe manuellEingeplant-Button
+    // auf der Kanban-Karte).
+    const mitTerminen = orders.filter(o => o.startDatum && o.endDatum && (istKomponentenBereit(o) || o.manuellEingeplant));
     const tage = computeTimelineTage(mitTerminen);
     const wochen = groupByWeek(tage);
 
@@ -2015,8 +2026,9 @@ function renderGantt(orders, dbType) {
             const endIdx = tage.findIndex(t => isSameDay(t, ende));
             if (startIdx === -1 || endIdx === -1) return;
 
+            const fehlendeKomponenten = o.manuellEingeplant && !istKomponentenBereit(o);
             const bar = document.createElement('div');
-            bar.className = `gantt-bar card-${o.status}`;
+            bar.className = `gantt-bar card-${o.status}${fehlendeKomponenten ? ' card-manuell' : ''}`;
             const lieferwoche = formatLieferwoche(o.lieferdatum);
             // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
             const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
@@ -2029,8 +2041,9 @@ function renderGantt(orders, dbType) {
                 <div class="gantt-bar-zelle gantt-bar-auftrag">Auftrag ${escapeHtml(o.auftragsnummer)}</div>
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
                 ${lieferwoche ? `<div class="gantt-bar-zelle gantt-bar-lieferwoche${zuSpaet ? ' spaet' : ''}">${zuSpaet ? '⚠ ' : ''}Liefertermin ${lieferwoche}</div>` : ''}
+                ${fehlendeKomponenten ? `<div class="gantt-bar-zelle gantt-bar-manuell">⚠ Komponenten fehlen noch</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
             bar.draggable = true;
@@ -2517,6 +2530,29 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify(patchBody),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// Auftrag trotz fehlender Komponenten in den Zeitplan aufnehmen (oder wieder
+// entfernen) - der Auftrag hat bereits einen Termin (aus der Einplanung), nur
+// die Anzeige im Zeitplan war bisher an istKomponentenBereit() gekoppelt.
+async function setManuellEingeplant(orderId, wert) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.manuellEingeplant = wert;
+    renderAll();
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ manuellEingeplant: wert }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
