@@ -95,7 +95,24 @@ function showApp() {
     });
     initFehlendeKomponentenToggle();
     loadExistingBoard();
+    applyVollbildModusAusUrl();
 }
+
+// Vollbild-Ansicht des Zeitplans in einem eigenen Tab: ?zeitplan=Formgebung
+// oder ?zeitplan=Cnc blendet Sidebar/Header/übrige Karten aus und zeigt nur
+// den Zeitplan der jeweiligen Seite.
+function applyVollbildModusAusUrl() {
+    const wert = new URLSearchParams(location.search).get('zeitplan');
+    if (wert !== 'Formgebung' && wert !== 'Cnc') return;
+    document.body.classList.add('vollbild-modus');
+    showPage('board' + wert);
+}
+
+document.querySelectorAll('.vollbild-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        window.open(`${location.pathname}?zeitplan=${btn.dataset.suffix}`, '_blank');
+    });
+});
 
 function switchPage(event) {
     showPage(event.currentTarget.getAttribute('data-page'));
