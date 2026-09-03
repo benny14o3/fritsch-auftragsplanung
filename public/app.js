@@ -1554,7 +1554,7 @@ async function saveOrdersToBackend(orders) {
 function isEditingDateInput() {
     const el = document.activeElement;
     if (!el) return false;
-    if (el.tagName === 'INPUT') return el.type === 'date' || el.classList.contains('komp-charge');
+    if (el.tagName === 'INPUT') return el.type === 'date' || el.classList.contains('komp-charge') || el.classList.contains('kanban-card-menge');
     return el.tagName === 'TEXTAREA' && el.classList.contains('kanban-card-kommentar');
 }
 
@@ -1627,8 +1627,13 @@ function buildCardElement(order, { spalte = null } = {}) {
 
     // Ist der Auftrag aufgeteilt, weicht die Hauptmenge von der Gesamtmenge ab -
     // beides zeigen, plus je Teilmenge Maschine/Termin/Menge mit Rückgängig-Option.
+    // Ohne Aufteilung ist die Menge direkt editierbar - z.B. wenn nachträglich
+    // (außerhalb der App) schon ein Teil versendet wurde und die verbleibende
+    // Menge korrigiert werden soll.
     const istAufgeteilt = order.teilmengen && order.teilmengen.length > 0;
-    const mengeText = istAufgeteilt ? `${order.menge} von ${order.gesamtmenge ?? order.menge} Stk` : `${order.menge} Stk`;
+    const mengeText = istAufgeteilt
+        ? `${order.menge} von ${order.gesamtmenge ?? order.menge} Stk`
+        : `<input type="number" class="kanban-card-menge" min="1" value="${order.menge}"> Stk`;
     let teilmengenHtml = '';
     if (istAufgeteilt) {
         const zeilen = order.teilmengen.map((t, idx) => {
@@ -1681,6 +1686,17 @@ function buildCardElement(order, { spalte = null } = {}) {
         kommentarInput.addEventListener('change', (e) => {
             e.stopPropagation();
             setKommentar(order._id, kommentarInput.value);
+        });
+    }
+
+    const mengeInput = card.querySelector('.kanban-card-menge');
+    if (mengeInput) {
+        mengeInput.draggable = false;
+        mengeInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        mengeInput.addEventListener('click', (e) => e.stopPropagation());
+        mengeInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            setMenge(order._id, parseInt(mengeInput.value));
         });
     }
 
@@ -2141,15 +2157,25 @@ function renderGantt(orders, dbType) {
             if (istTeilmenge) statusTeile.push(`${a.menge} Stk`);
             if (lieferwoche) statusTeile.push(`${zuSpaet ? '⚠ ' : ''}${lieferwoche}`);
             if (fehlendeKomponenten) statusTeile.push('⚠ Komponenten fehlen');
+            if (o.kommentar) statusTeile.push(`💬 ${o.kommentar}`);
             bar.innerHTML = `
+                <button type="button" class="gantt-bar-kommentar-btn" title="Kommentar bearbeiten">💬</button>
                 <div class="gantt-bar-zelle gantt-bar-kopf">${escapeHtml(o.artikelnummer)} · ${escapeHtml(o.auftragsnummer)}</div>
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
                 ${statusTeile.length ? `<div class="gantt-bar-zelle gantt-bar-status${zuSpaet ? ' spaet' : ''}">${statusTeile.join(' · ')}</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
             bar.draggable = true;
+            bar.querySelector('.gantt-bar-kommentar-btn').addEventListener('mousedown', (e) => e.stopPropagation());
+            bar.querySelector('.gantt-bar-kommentar-btn').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const neu = prompt(`Kommentar zu Auftrag ${o.auftragsnummer}:`, o.kommentar || '');
+                if (neu === null) return;
+                await setKommentar(o._id, neu);
+                renderAll();
+            });
             bar.addEventListener('dragstart', (e) => {
                 e.stopPropagation();
                 // Manche Browser (v.a. Firefox) starten einen Drag nur, wenn
@@ -2732,6 +2758,43 @@ async function setKommentar(orderId, kommentar) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify({ kommentar }),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// Menge nachträglich korrigieren (z.B. wenn außerhalb der App schon ein Teil
+// versendet wurde) - nur ohne aktive Teilmengen-Aufteilung möglich, sonst wäre
+// unklar, ob sich die Korrektur auf die Gesamt- oder nur die Hauptmenge bezieht.
+// gesamtmenge wandert um denselben Betrag mit, damit sie weiter der wahren
+// Gesamtmenge entspricht (Referenz für künftige Teilmengen-Aufteilungen).
+async function setMenge(orderId, neueMenge) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order || !neueMenge || neueMenge <= 0 || (order.teilmengen && order.teilmengen.length > 0)) {
+        renderAll();
+        return;
+    }
+    const delta = neueMenge - order.menge;
+    order.menge = neueMenge;
+    order.gesamtmenge = (order.gesamtmenge ?? order.menge) + delta;
+    const berechnet = berechneBearbeitungszeit(order, neueMenge);
+    order.bearbeitungsMin = berechnet.bearbeitungsMin;
+    order.schichten = berechnet.schichten;
+    if (order.startDatum) order.endDatum = addWorkdays(new Date(order.startDatum), berechnet.tage - 1);
+    renderAll();
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                menge: order.menge, gesamtmenge: order.gesamtmenge,
+                bearbeitungsMin: order.bearbeitungsMin, schichten: order.schichten, endDatum: order.endDatum,
+            }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand

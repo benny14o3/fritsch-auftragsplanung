@@ -125,6 +125,7 @@
         .kanban-card-desc { color: #475569; margin-bottom: 4px; }
         .kanban-card-parallel { color: #7c3aed; margin-bottom: 4px; }
         .kanban-card-meta { color: #64748b; }
+        .kanban-card-menge { width: 55px; padding: 1px 4px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; color: #0f172a; }
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
         .teilmenge-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0; font-size: 11px; }
@@ -161,7 +162,9 @@
         .gantt-day-label { position: sticky; left: 40px; z-index: 2; background: #f8fafc; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #64748b; }
         .gantt-cell { border-right: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; }
         .gantt-cell.drag-over { background: #ecfdf5; }
-        .gantt-bar { margin: 1px 3px; border-radius: 4px; background: #16a34a; color: white; font-size: 11px; padding: 0; overflow: hidden; line-height: 1.25; z-index: 1; cursor: grab; display: flex; flex-direction: column; }
+        .gantt-bar { position: relative; margin: 1px 3px; border-radius: 4px; background: #16a34a; color: white; font-size: 11px; padding: 0; overflow: hidden; line-height: 1.25; z-index: 1; cursor: grab; display: flex; flex-direction: column; }
+        .gantt-bar-kommentar-btn { position: absolute; top: 1px; right: 1px; border: none; background: rgba(0,0,0,0.15); color: white; font-size: 10px; line-height: 1; padding: 2px 3px; border-radius: 3px; cursor: pointer; z-index: 2; }
+        .gantt-bar-kommentar-btn:hover { background: rgba(0,0,0,0.3); }
         .gantt-bar.card-ueberlastet { background: #ef4444; }
         .gantt-bar.card-ausstehend { background: #94a3b8; }
         .gantt-bar.card-manuell { background: #eab308; }

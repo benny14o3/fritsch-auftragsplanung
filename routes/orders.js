@@ -42,7 +42,7 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 // Für Drag & Drop und Phasenwechsel (Produktion -> Endbearbeitung -> Ausgeliefert).
 router.patch('/:orderId', authMiddleware, async (req, res) => {
   try {
-    const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang, dbType, manuellEingeplant, kommentar, menge, bearbeitungsMin, schichten, teilmengen } = req.body;
+    const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang, dbType, manuellEingeplant, kommentar, menge, gesamtmenge, bearbeitungsMin, schichten, teilmengen } = req.body;
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     if (maschineId !== undefined) order.maschineId = maschineId;
@@ -61,6 +61,10 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     // wenn ein Teil abgespalten wird, bzw. wächst wieder, wenn eine Teilmenge
     // rückgängig gemacht wird (siehe public/app.js splitTeilmenge/removeTeilmenge).
     if (menge !== undefined) order.menge = menge;
+    // Nur bei nachträglicher Mengen-Korrektur mitgegeben (siehe setMenge in
+    // public/app.js) - wandert im selben Umfang wie menge mit, damit sie weiter
+    // der wahren Gesamtmenge entspricht.
+    if (gesamtmenge !== undefined) order.gesamtmenge = gesamtmenge;
     if (bearbeitungsMin !== undefined) order.bearbeitungsMin = bearbeitungsMin;
     if (schichten !== undefined) order.schichten = schichten;
     if (teilmengen !== undefined) order.teilmengen = teilmengen;
