@@ -70,6 +70,25 @@ const erstfreigabeSchema = new mongoose.Schema({
   messungen: [erstfreigabeMessungSchema],
 }, { _id: false });
 
+// Teilmenge: ein Auftrag kann auf mehrere Zeitfenster/Maschinen aufgeteilt
+// werden (z.B. 1200 von 2000 Stk jetzt auf Maschine A, der Rest später oder
+// parallel auf Maschine B) - bleibt EIN Auftrag (eine Auftragsnummer, eine
+// FSK, eine Erstfreigabe, eine Komponentenliste), nur die Produktionszeit
+// verteilt sich auf mehrere Abschnitte. Der "Hauptabschnitt" (verbleibende
+// Menge nach Abzug aller Teilmengen) steht weiterhin in den Top-Level-Feldern
+// maschineId/startDatum/endDatum/etc., damit unveränderte (nicht aufgeteilte)
+// Aufträge exakt wie bisher funktionieren.
+const teilmengeSchema = new mongoose.Schema({
+  menge: { type: Number, required: true },
+  maschineId: { type: String, default: null },
+  maschineId2: { type: String, default: null },
+  startDatum: { type: Date, default: null },
+  endDatum: { type: Date, default: null },
+  bearbeitungsMin: Number,
+  schichten: Number,
+  status: { type: String, enum: ['ausstehend', 'geplant', 'ueberlastet'], default: 'geplant' },
+});
+
 const orderSchema = new mongoose.Schema({
   auftragsnummer: String,
   bestellnummer: String,
@@ -78,6 +97,11 @@ const orderSchema = new mongoose.Schema({
   beschreibung: String,
   komponenten: [komponenteSchema],
   menge: Number,
+  // Ursprüngliche Gesamtmenge des Fertigungsauftrags, unverändert durch
+  // Teilmengen-Aufteilung - menge + Summe(teilmengen.menge) darf das nie
+  // übersteigen. Wird beim ersten Speichern automatisch aus menge befüllt.
+  gesamtmenge: { type: Number, default: null },
+  teilmengen: [teilmengeSchema],
   kavitaet: Number,
   rundenProSchicht: Number,
   zeitProHundert: Number,
@@ -105,6 +129,15 @@ const orderSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now },
+});
+
+// gesamtmenge nie manuell mitgeben müssen - bei Neuanlage automatisch aus
+// menge übernehmen (Insert-Import, manuelle Anlage, jede Erstellungsroute).
+orderSchema.pre('save', function(next) {
+  if (this.isNew && (this.gesamtmenge === null || this.gesamtmenge === undefined)) {
+    this.gesamtmenge = this.menge;
+  }
+  next();
 });
 
 module.exports = mongoose.model('Order', orderSchema);

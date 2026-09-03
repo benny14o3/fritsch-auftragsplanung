@@ -126,6 +126,9 @@
         .kanban-card-parallel { color: #7c3aed; margin-bottom: 4px; }
         .kanban-card-meta { color: #64748b; }
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
+        .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
+        .teilmenge-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0; font-size: 11px; }
+        .teilmenge-remove-btn { border: 1px solid #e2e8f0; border-radius: 4px; background: white; cursor: pointer; font-size: 11px; padding: 1px 6px; flex-shrink: 0; }
         .kanban-card-kommentar::placeholder { color: #cbd5e1; }
         .kanban-card-komponenten { margin: 6px 0; padding: 6px; background: #fef2f2; border-radius: 4px; }
         .kanban-card-komponenten.komplett { background: #f0fdf4; }
@@ -714,6 +717,24 @@
             </div>
             <p id="articleDetailExportNote" style="margin-top: 10px; font-size: 13px;"></p>
         </div>
+    </div>
+</div>
+
+<div id="teilmengeModal" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width: 420px;">
+        <button class="modal-close" id="teilmengeCloseBtn">✕</button>
+        <h3>Teilmenge einplanen</h3>
+        <p class="modal-sub" id="teilmengeSub"></p>
+        <div class="form-group">
+            <label>Menge</label>
+            <input type="number" id="teilmengeMenge" min="1">
+        </div>
+        <div class="form-group">
+            <label>Maschine</label>
+            <select id="teilmengeMaschine"></select>
+        </div>
+        <button class="btn btn-primary" id="teilmengeSubmitBtn">Einplanen</button>
+        <p id="teilmengeNote" style="margin-top: 12px; font-size: 13px;"></p>
     </div>
 </div>
 

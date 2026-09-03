@@ -1393,6 +1393,9 @@ function parseExcelDatum(value) {
 let boardOrders = [];
 let draggedOrderId = null;
 let draggedOrderFeld = null;
+// -1 = Hauptabschnitt des Auftrags, sonst Index in order.teilmengen (siehe
+// alleZeitabschnitte). Kanban-Karten ziehen immer den Hauptabschnitt.
+let draggedTeilIndex = -1;
 let isDragging = false;
 let boardPollTimer = null;
 
@@ -1622,7 +1625,24 @@ function buildCardElement(order, { spalte = null } = {}) {
 
     const kommentarHtml = `<textarea class="kanban-card-kommentar" placeholder="Kommentar...">${escapeHtml(order.kommentar || '')}</textarea>`;
 
-    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${order.menge} Stk · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>${kommentarHtml}`;
+    // Ist der Auftrag aufgeteilt, weicht die Hauptmenge von der Gesamtmenge ab -
+    // beides zeigen, plus je Teilmenge Maschine/Termin/Menge mit Rückgängig-Option.
+    const istAufgeteilt = order.teilmengen && order.teilmengen.length > 0;
+    const mengeText = istAufgeteilt ? `${order.menge} von ${order.gesamtmenge ?? order.menge} Stk` : `${order.menge} Stk`;
+    let teilmengenHtml = '';
+    if (istAufgeteilt) {
+        const zeilen = order.teilmengen.map((t, idx) => {
+            const maschine = MASCHINEN.find(m => m.id === t.maschineId)?.name || t.maschineId || '–';
+            const zeitraum = t.startDatum ? `${formatDateShort(t.startDatum)}–${formatDateShort(t.endDatum)}` : 'noch nicht eingeplant';
+            return `<div class="teilmenge-zeile">
+                <span>✂ ${t.menge} Stk · ${escapeHtml(maschine)} · ${zeitraum}</span>
+                <button type="button" class="teilmenge-remove-btn" data-teil-index="${idx}" title="Teilmenge zurücknehmen">↩</button>
+            </div>`;
+        }).join('');
+        teilmengenHtml = `<div class="kanban-card-teilmengen">${zeilen}</div>`;
+    }
+
+    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${mengeText} · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>${teilmengenHtml}${kommentarHtml}`;
 
     card.querySelectorAll('.komp-date').forEach(input => {
         input.draggable = false;
@@ -1663,6 +1683,15 @@ function buildCardElement(order, { spalte = null } = {}) {
             setKommentar(order._id, kommentarInput.value);
         });
     }
+
+    card.querySelectorAll('.teilmenge-remove-btn').forEach(btn => {
+        btn.draggable = false;
+        btn.addEventListener('mousedown', (e) => e.stopPropagation());
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeTeilmenge(order._id, parseInt(btn.dataset.teilIndex));
+        });
+    });
 
     return card;
 }
@@ -1865,6 +1894,12 @@ function renderBoard(dbType) {
                     addCardAction(card, '📅 Trotzdem einplanen', () => setManuellEingeplant(order._id, true));
                 }
             }
+            // Teilmenge auf ein weiteres Zeitfenster/eine weitere Maschine aufteilen -
+            // bleibt derselbe Auftrag (eine FSK/Erstfreigabe), nur mit mehreren
+            // Zeitplan-Abschnitten. Braucht eine bereits zugeordnete Hauptmaschine.
+            if (order.maschineId) {
+                addCardAction(card, '✂ Teilmenge einplanen', () => openTeilmengeModal(order._id));
+            }
             const zielDbType = order.dbType === 'Elastomer' ? 'PTFE' : 'Elastomer';
             const zielLabel = zielDbType === 'PTFE' ? 'CNC' : 'Formgebung';
             addCardAction(card, `↔ Zu ${zielLabel} verschieben`, () => moveToOtherDepartment(order._id, zielDbType));
@@ -1881,6 +1916,7 @@ function renderBoard(dbType) {
                 // zugewiesene") direkt auf eine Zeitplan-Zelle ziehen lassen -
                 // das legt dann Maschine + Start-/Enddatum auf einen Schlag fest.
                 draggedOrderFeld = 'maschineId';
+                draggedTeilIndex = -1;
                 isDragging = true;
                 card.classList.add('dragging');
             });
@@ -1999,9 +2035,11 @@ function renderGantt(orders, dbType) {
 
     // Nur produzierbare Aufträge (alle Komponenten da) im Zeitplan zeigen - oder
     // manuell trotz fehlender Komponenten eingeplante (siehe manuellEingeplant-Button
-    // auf der Kanban-Karte).
-    const mitTerminen = orders.filter(o => o.startDatum && o.endDatum && (istKomponentenBereit(o) || o.manuellEingeplant));
-    const tage = computeTimelineTage(mitTerminen);
+    // auf der Kanban-Karte). Ein Auftrag kann mehrere Zeitabschnitte haben (siehe
+    // alleZeitabschnitte) - jeder davon bekommt einen eigenen Balken.
+    const bereiteOrders = orders.filter(o => istKomponentenBereit(o) || o.manuellEingeplant);
+    const abschnitte = alleZeitabschnitte(bereiteOrders);
+    const tage = computeTimelineTage(abschnitte);
     const wochen = groupByWeek(tage);
 
     grid.innerHTML = '';
@@ -2068,7 +2106,7 @@ function renderGantt(orders, dbType) {
                 e.preventDefault();
                 cell.classList.remove('drag-over');
                 if (draggedOrderId && draggedOrderFeld) {
-                    moveGanttOrder(draggedOrderId, draggedOrderFeld, m.id, t);
+                    moveGanttOrder(draggedOrderId, draggedOrderFeld, m.id, t, draggedTeilIndex);
                 }
             });
 
@@ -2076,20 +2114,22 @@ function renderGantt(orders, dbType) {
         });
     });
 
-    mitTerminen.forEach(o => {
-        [o.maschineId, o.maschineId2].filter(Boolean).forEach(maschineId => {
-            const feld = maschineId === o.maschineId ? 'maschineId' : 'maschineId2';
+    abschnitte.forEach(a => {
+        const o = a.order;
+        [a.maschineId, a.maschineId2].filter(Boolean).forEach(maschineId => {
+            const feld = maschineId === a.maschineId ? 'maschineId' : 'maschineId2';
             const mi = maschinenListe.findIndex(m => m.id === maschineId);
             if (mi === -1) return;
-            const start = new Date(o.startDatum);
-            const ende = new Date(o.endDatum);
+            const start = new Date(a.startDatum);
+            const ende = new Date(a.endDatum);
             const startIdx = tage.findIndex(t => isSameDay(t, start));
             const endIdx = tage.findIndex(t => isSameDay(t, ende));
             if (startIdx === -1 || endIdx === -1) return;
 
+            const istTeilmenge = a.teilIndex !== -1 || (o.teilmengen && o.teilmengen.length > 0);
             const fehlendeKomponenten = o.manuellEingeplant && !istKomponentenBereit(o);
             const bar = document.createElement('div');
-            bar.className = `gantt-bar card-${o.status}${fehlendeKomponenten ? ' card-manuell' : ''}`;
+            bar.className = `gantt-bar card-${a.status}${fehlendeKomponenten ? ' card-manuell' : ''}`;
             const lieferwoche = formatLieferwoche(o.lieferdatum);
             // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
             const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
@@ -2098,6 +2138,7 @@ function renderGantt(orders, dbType) {
             // woche + evtl. Warnungen in einer Statuszeile. Damit reicht eine
             // niedrigere Tageszeile aus, ohne dass Inhalt abgeschnitten wird.
             const statusTeile = [];
+            if (istTeilmenge) statusTeile.push(`${a.menge} Stk`);
             if (lieferwoche) statusTeile.push(`${zuSpaet ? '⚠ ' : ''}${lieferwoche}`);
             if (fehlendeKomponenten) statusTeile.push('⚠ Komponenten fehlen');
             bar.innerHTML = `
@@ -2105,7 +2146,7 @@ function renderGantt(orders, dbType) {
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
                 ${statusTeile.length ? `<div class="gantt-bar-zelle gantt-bar-status${zuSpaet ? ' spaet' : ''}">${statusTeile.join(' · ')}</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}\n${formatDateShort(o.startDatum)} – ${formatDateShort(o.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
             bar.draggable = true;
@@ -2117,12 +2158,14 @@ function renderGantt(orders, dbType) {
                 e.dataTransfer.effectAllowed = 'move';
                 draggedOrderId = o._id;
                 draggedOrderFeld = feld;
+                draggedTeilIndex = a.teilIndex;
                 isDragging = true;
                 bar.classList.add('dragging');
             });
             bar.addEventListener('dragend', () => {
                 isDragging = false;
                 draggedOrderFeld = null;
+                draggedTeilIndex = -1;
                 bar.classList.remove('dragging');
             });
             grid.appendChild(bar);
@@ -2132,18 +2175,22 @@ function renderGantt(orders, dbType) {
 
 // Auftrag im Zeitplan per Drag & Drop auf eine andere Maschine/einen anderen Tag
 // verschieben - die Dauer bleibt gleich, nur Start (und damit Ende) verschiebt sich.
-async function moveGanttOrder(orderId, feld, maschineId, neuerStartTag) {
+// teilIndex -1 verschiebt den Hauptabschnitt (Top-Level-Felder wie bisher),
+// ein Index >= 0 verschiebt genau diesen Teilmengen-Abschnitt.
+async function moveGanttOrder(orderId, feld, maschineId, neuerStartTag, teilIndex = -1) {
     const order = boardOrders.find(o => o._id === orderId);
     if (!order) return;
+    const ziel = teilIndex === -1 ? order : order.teilmengen?.[teilIndex];
+    if (!ziel) return;
 
-    const tage = Math.max(1, order.schichten || 1);
+    const tage = Math.max(1, ziel.schichten || 1);
     const startDatum = nextWeekday(new Date(neuerStartTag));
     const endDatum = addWorkdays(startDatum, tage - 1);
 
-    order[feld] = maschineId;
-    order.startDatum = startDatum;
-    order.endDatum = endDatum;
-    order.status = 'geplant';
+    ziel[feld] = maschineId;
+    ziel.startDatum = startDatum;
+    ziel.endDatum = endDatum;
+    ziel.status = 'geplant';
     renderAll();
 
     try {
@@ -2153,7 +2200,11 @@ async function moveGanttOrder(orderId, feld, maschineId, neuerStartTag) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({ [feld]: maschineId, startDatum, endDatum, status: 'geplant' }),
+            body: JSON.stringify(
+                teilIndex === -1
+                    ? { [feld]: maschineId, startDatum, endDatum, status: 'geplant' }
+                    : { teilmengen: order.teilmengen }
+            ),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
@@ -2348,16 +2399,60 @@ async function handleDeleteAllOrders(dbType) {
 document.getElementById('deleteAllOrdersBtnFormgebung')?.addEventListener('click', () => handleDeleteAllOrders('Elastomer'));
 document.getElementById('deleteAllOrdersBtnCnc')?.addEventListener('click', () => handleDeleteAllOrders('PTFE'));
 
+// Berechnungsformel für Bearbeitungszeit/Schichten/Tage einer Menge - geteilt
+// zwischen Erstplanung, manueller Anlage und Teilmengen-Aufteilung, damit alle
+// drei exakt gleich rechnen.
+function berechneBearbeitungszeit(order, menge) {
+    const bearbeitungsMin = order.dbType === 'PTFE'
+        ? (menge / 100) * (order.zeitProHundert || 0)
+        : Math.ceil(menge / (order.kavitaet || 1)) * (480 / (order.rundenProSchicht || 1));
+    const schichten = Math.ceil(bearbeitungsMin / 480);
+    return { bearbeitungsMin, schichten, tage: Math.max(1, schichten) };
+}
+
+// Ein Auftrag belegt normalerweise EIN Zeitfenster (Top-Level-Felder). Wurde er
+// per Teilmenge aufgeteilt, kommen weitere Abschnitte aus order.teilmengen
+// dazu - für Zeitplan-Darstellung und Maschinenbelegung sind das gleichwertige,
+// eigenständige Zeitfenster derselben Maschine(n)/desselben Auftrags.
+// teilIndex -1 = Hauptabschnitt (Top-Level-Felder), sonst Index in teilmengen.
+function alleZeitabschnitte(orders) {
+    const liste = [];
+    orders.forEach(o => {
+        if (o.startDatum && o.endDatum) {
+            liste.push({
+                orderId: o._id, teilIndex: -1, order: o, menge: o.menge,
+                maschineId: o.maschineId, maschineId2: o.maschineId2,
+                startDatum: o.startDatum, endDatum: o.endDatum,
+                bearbeitungsMin: o.bearbeitungsMin, schichten: o.schichten, status: o.status,
+            });
+        }
+        (o.teilmengen || []).forEach((t, idx) => {
+            if (t.startDatum && t.endDatum) {
+                liste.push({
+                    orderId: o._id, teilIndex: idx, order: o, menge: t.menge,
+                    maschineId: t.maschineId, maschineId2: t.maschineId2,
+                    startDatum: t.startDatum, endDatum: t.endDatum,
+                    bearbeitungsMin: t.bearbeitungsMin, schichten: t.schichten, status: t.status,
+                });
+            }
+        });
+    });
+    return liste;
+}
+
 // Nächster freier Werktag für eine Maschine basierend auf dem tatsächlich
 // aktuell geplanten Bestand (nicht nur "heute"), damit ein manuell hinzugefügter
-// Auftrag hinter den bestehenden Aufträgen auf dieser Maschine eingereiht wird.
-function getMachineNextFree(maschineId, excludeOrderId = null) {
-    const relevant = boardOrders.filter(o =>
-        o.phase === 'produktion' && o.endDatum && o._id !== excludeOrderId
-        && (o.maschineId === maschineId || o.maschineId2 === maschineId));
+// Auftrag (oder eine neue Teilmenge) hinter den bestehenden Abschnitten auf
+// dieser Maschine eingereiht wird. exclude blendet den eigenen Abschnitt aus
+// (z.B. beim Verschieben per Drag & Drop).
+function getMachineNextFree(maschineId, exclude = {}) {
+    const relevant = alleZeitabschnitte(boardOrders).filter(a =>
+        a.order.phase === 'produktion'
+        && !(a.orderId === exclude.orderId && a.teilIndex === (exclude.teilIndex ?? -1))
+        && (a.maschineId === maschineId || a.maschineId2 === maschineId));
     if (relevant.length === 0) return nextWeekday(new Date());
-    const maxEnd = relevant.reduce((max, o) => {
-        const d = new Date(o.endDatum);
+    const maxEnd = relevant.reduce((max, a) => {
+        const d = new Date(a.endDatum);
         return d > max ? d : max;
     }, new Date(0));
     return addWorkdays(maxEnd, 1);
@@ -2370,20 +2465,20 @@ function liefertermSchluessel(datum) {
 }
 
 // Nächster freier Platz für einen Auftrag, der GERADE produzierbar wird - anders
-// als getMachineNextFree() reiht das nicht hinter ALLE Aufträge der Maschine ein
+// als getMachineNextFree() reiht das nicht hinter ALLE Abschnitte der Maschine ein
 // (auch nicht hinter noch gar nicht produzierbare mit längst überholtem
 // Platzhalter-Termin), sondern nur hinter die bereits produzierbaren Aufträge
 // mit gleichem oder früherem Liefertermin. So landet der Auftrag an der zu
 // seinem Liefertermin passenden Stelle, ohne dass andere Aufträge (auch
 // manuell verschobene) angetastet werden.
 function getInsertionSlot(order, maschineId) {
-    const vorgaenger = boardOrders.filter(o =>
-        o.phase === 'produktion' && o._id !== order._id && o.endDatum && istKomponentenBereit(o)
-        && (o.maschineId === maschineId || o.maschineId2 === maschineId)
-        && liefertermSchluessel(o.lieferdatum) <= liefertermSchluessel(order.lieferdatum));
+    const vorgaenger = alleZeitabschnitte(boardOrders).filter(a =>
+        a.order.phase === 'produktion' && a.orderId !== order._id && istKomponentenBereit(a.order)
+        && (a.maschineId === maschineId || a.maschineId2 === maschineId)
+        && liefertermSchluessel(a.order.lieferdatum) <= liefertermSchluessel(order.lieferdatum));
     let frei = nextWeekday(new Date());
-    vorgaenger.forEach(o => {
-        const ende = addWorkdays(new Date(o.endDatum), 1);
+    vorgaenger.forEach(a => {
+        const ende = addWorkdays(new Date(a.endDatum), 1);
         if (ende > frei) frei = ende;
     });
     return frei;
@@ -2659,6 +2754,113 @@ async function setKomponenteCharge(orderId, idx, charge) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify({ komponenten: order.komponenten }),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// --- Teilmengen (Auftrag auf mehrere Zeitfenster/Maschinen aufteilen) ---
+
+let teilmengeOrderId = null;
+
+function openTeilmengeModal(orderId) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+    teilmengeOrderId = orderId;
+    document.getElementById('teilmengeSub').textContent = `${order.artikelnummer} · Auftrag ${order.auftragsnummer} - verfügbar: ${order.menge} Stk`;
+    document.getElementById('teilmengeMenge').value = '';
+    document.getElementById('teilmengeNote').textContent = '';
+
+    const select = document.getElementById('teilmengeMaschine');
+    select.innerHTML = '';
+    MASCHINEN.filter(m => m.type === order.dbType).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name;
+        if (m.id === order.maschineId) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    document.getElementById('teilmengeModal').classList.remove('hidden');
+}
+
+function closeTeilmengeModal() {
+    document.getElementById('teilmengeModal').classList.add('hidden');
+    teilmengeOrderId = null;
+}
+
+document.getElementById('teilmengeCloseBtn')?.addEventListener('click', closeTeilmengeModal);
+
+document.getElementById('teilmengeSubmitBtn')?.addEventListener('click', async () => {
+    const note = document.getElementById('teilmengeNote');
+    const order = boardOrders.find(o => o._id === teilmengeOrderId);
+    if (!order) return;
+    const menge = parseInt(document.getElementById('teilmengeMenge').value);
+    const maschineId = document.getElementById('teilmengeMaschine').value;
+    note.style.color = '#b91c1c';
+    if (!menge || menge <= 0) { note.textContent = 'Bitte eine Menge größer 0 angeben.'; return; }
+    if (menge >= order.menge) { note.textContent = `Teilmenge muss kleiner als die verfügbare Menge (${order.menge} Stk) sein.`; return; }
+
+    // Neue Teilmenge berechnen und auf der Zielmaschine hinter den dort schon
+    // belegten Zeitabschnitten einplanen.
+    const neu = berechneBearbeitungszeit(order, menge);
+    const start = getMachineNextFree(maschineId);
+    const ende = addWorkdays(start, neu.tage - 1);
+    const neueTeilmenge = {
+        menge, maschineId, maschineId2: null, startDatum: start, endDatum: ende,
+        bearbeitungsMin: neu.bearbeitungsMin, schichten: neu.schichten, status: 'geplant',
+    };
+
+    // Hauptabschnitt um die abgespaltene Menge verkleinern - Dauer neu berechnen,
+    // Start bleibt, Ende schrumpft entsprechend (schiebt sich nie in andere
+    // Aufträge hinein, da nur verkürzt, nie verlängert wird).
+    const rest = berechneBearbeitungszeit(order, order.menge - menge);
+    order.menge -= menge;
+    order.bearbeitungsMin = rest.bearbeitungsMin;
+    order.schichten = rest.schichten;
+    if (order.startDatum) order.endDatum = addWorkdays(new Date(order.startDatum), rest.tage - 1);
+    order.teilmengen = [...(order.teilmengen || []), neueTeilmenge];
+
+    renderAll();
+    closeTeilmengeModal();
+
+    try {
+        await fetch(`${API_URL}/orders/${order._id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                menge: order.menge, bearbeitungsMin: order.bearbeitungsMin, schichten: order.schichten,
+                endDatum: order.endDatum, teilmengen: order.teilmengen,
+            }),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+});
+
+// Teilmenge rückgängig machen - Menge fließt zurück in den Hauptabschnitt,
+// dessen Dauer entsprechend wieder wächst.
+async function removeTeilmenge(orderId, teilIndex) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order || !order.teilmengen?.[teilIndex]) return;
+    const [entfernt] = order.teilmengen.splice(teilIndex, 1);
+
+    const berechnet = berechneBearbeitungszeit(order, order.menge + entfernt.menge);
+    order.menge += entfernt.menge;
+    order.bearbeitungsMin = berechnet.bearbeitungsMin;
+    order.schichten = berechnet.schichten;
+    if (order.startDatum) order.endDatum = addWorkdays(new Date(order.startDatum), berechnet.tage - 1);
+    renderAll();
+
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                menge: order.menge, bearbeitungsMin: order.bearbeitungsMin, schichten: order.schichten,
+                endDatum: order.endDatum, teilmengen: order.teilmengen,
+            }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
