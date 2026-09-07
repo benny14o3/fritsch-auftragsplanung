@@ -11,7 +11,10 @@ const router = express.Router();
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const filter = req.query.artikelnummer ? { artikelnummer: req.query.artikelnummer } : {};
-    const orders = await Order.find(filter).sort({ position: 1 });
+    // Bilddaten (base64) hier bewusst ausblenden - dieser Endpunkt wird alle 6s
+    // fürs Board gepollt, Dateiname/Datum reichen dafür als Vorschau-Hinweis.
+    // Der eigentliche Bildinhalt kommt über die eigene Bild-Route (s.u.).
+    const orders = await Order.find(filter).sort({ position: 1 }).select('-komponenten.bild.data');
     res.json(orders);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -51,7 +54,14 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     if (endDatum !== undefined) order.endDatum = endDatum;
     if (position !== undefined) order.position = position;
     if (status !== undefined) order.status = status;
-    if (komponenten !== undefined) order.komponenten = komponenten;
+    if (komponenten !== undefined) {
+      // Der Client hält Wareneingangs-Fotos bewusst nie im Speicher (siehe
+      // GET /-Route oben) - beim Zurückschreiben der Komponenten-Liste (z.B.
+      // Charge/Datum geändert) deshalb je Index das serverseitig hinterlegte
+      // Bild übernehmen, statt es durch das PATCH zu löschen.
+      const alte = order.komponenten;
+      order.komponenten = komponenten.map((k, i) => ({ ...k, bild: alte[i]?.bild ?? null }));
+    }
     if (phase !== undefined) order.phase = phase;
     if (warenausgang !== undefined) order.warenausgang = warenausgang;
     if (dbType !== undefined) order.dbType = dbType;
@@ -71,6 +81,49 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     order.updatedBy = req.userId;
     await order.save();
     res.json(order);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Wareneingangs-Foto einer Komponente (z.B. die handschriftliche Charge) -
+// eigene Route statt Teil des allgemeinen PATCH, weil das Bild als base64
+// deutlich größer ist als die übrigen Felder und sonst bei jeder kleinen
+// Änderung (Charge, Datum, ...) unnötig mitgeschickt werden müsste.
+router.put('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const komponente = order.komponenten[req.params.idx];
+    if (!komponente) return res.status(404).json({ error: 'Komponente nicht gefunden' });
+    const { filename, mimeType, data } = req.body;
+    if (!filename || !mimeType || !data) return res.status(400).json({ error: 'Datei unvollständig' });
+    komponente.bild = { filename, mimeType, data, uploadedAt: new Date() };
+    order.updatedBy = req.userId;
+    await order.save();
+    res.json({ filename: komponente.bild.filename, mimeType: komponente.bild.mimeType, uploadedAt: komponente.bild.uploadedAt });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Bild inkl. Daten nur bei Bedarf abrufen (Lightbox), nicht im Board-Poll.
+router.get('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId).select('komponenten');
+    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const komponente = order.komponenten[req.params.idx];
+    if (!komponente || !komponente.bild) return res.status(404).json({ error: 'Kein Bild hinterlegt' });
+    res.json(komponente.bild);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const komponente = order.komponenten[req.params.idx];
+    if (!komponente) return res.status(404).json({ error: 'Komponente nicht gefunden' });
+    komponente.bild = null;
+    order.updatedBy = req.userId;
+    await order.save();
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

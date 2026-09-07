@@ -1,5 +1,17 @@
 const mongoose = require('mongoose');
 
+// Foto zum Wareneingang (meist die handschriftlich notierte Chargennummer) -
+// eigene Unter-Struktur wie zeichnung/einstelldatenblatt beim Artikel, aber
+// über eigene Routen befüllt/abgerufen (siehe routes/orders.js), damit das
+// Bild nicht bei jedem 6-Sekunden-Board-Poll oder jeder Chargen-Änderung
+// mitgeschickt werden muss.
+const komponentenBildSchema = new mongoose.Schema({
+  filename: String,
+  mimeType: String,
+  data: String, // base64
+  uploadedAt: { type: Date, default: Date.now },
+}, { _id: false });
+
 const komponenteSchema = new mongoose.Schema({
   artikelnummer: String,
   bezeichnung: String,
@@ -7,6 +19,7 @@ const komponenteSchema = new mongoose.Schema({
   // Chargennummer des Lieferanten - für ISO-9001-Rückverfolgbarkeit vom
   // Rohmaterial bis zum Fertigteil, beim Wareneingang erfasst.
   charge: { type: String, default: '' },
+  bild: { type: komponentenBildSchema, default: null },
 });
 
 // Ein Eintrag pro Strich auf der Fehlersammelkarte - Kürzel/Zeitpunkt kommen aus

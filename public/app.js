@@ -1610,8 +1610,18 @@ function buildCardElement(order, { spalte = null } = {}) {
             // jedem Browser gleich funktioniert.
             const clearBtn = k.wareneingang ? `<button type="button" class="komp-date-clear" data-komp-index="${idx}" title="Wareneingang löschen">✕</button>` : '';
             // Das Werkzeug ist keine Rohmaterial-Komponente eines Lieferanten -
-            // dafür gibt es keine Charge.
-            const chargeInput = k.bezeichnung === 'Werkzeug' ? '' : `<input type="text" class="komp-charge" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">`;
+            // dafür gibt es weder Charge noch Wareneingangs-Foto.
+            // Foto der (meist handschriftlichen) Charge - nur Dateiname/Datum
+            // kommen mit dem Board-Poll, der eigentliche Bildinhalt wird erst
+            // beim Öffnen der Lightbox nachgeladen (siehe openKomponenteBildModal).
+            const bildBtn = k.bild
+                ? `<button type="button" class="komp-bild-btn komp-bild-da" data-komp-index="${idx}" title="Foto ansehen (${escapeHtml(k.bild.filename)}, ${new Date(k.bild.uploadedAt).toLocaleDateString('de-DE')})">🖼️</button>`
+                : `<label class="komp-bild-btn" title="Foto der Charge aufnehmen/hochladen">📷<input type="file" accept="image/*" capture="environment" class="komp-bild-input" data-komp-index="${idx}" hidden></label>`;
+            const chargeInput = k.bezeichnung === 'Werkzeug' ? '' : `
+                <div class="komponente-charge-zeile">
+                    <input type="text" class="komp-charge" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">
+                    ${bildBtn}
+                </div>`;
             return `<div class="komponente-zeile-gruppe">
                 <div class="komponente-zeile"><span>${icon} ${escapeHtml(label)}</span><input type="date" class="komp-date" data-komp-index="${idx}" value="${toDateInputValue(k.wareneingang)}">${clearBtn}</div>
                 ${chargeInput}
@@ -1675,6 +1685,28 @@ function buildCardElement(order, { spalte = null } = {}) {
         input.addEventListener('change', (e) => {
             e.stopPropagation();
             setKomponenteCharge(order._id, parseInt(input.dataset.kompIndex), input.value);
+        });
+    });
+
+    // Für die Foto-Aufnahme ist der Klick-Ziel-Punkt das <label> (der Input ist
+    // unsichtbar/hidden) - dort muss das Wegklicken vom Karten-Drag verhindert
+    // werden, nicht am Input selbst.
+    card.querySelectorAll('label.komp-bild-btn').forEach(label => {
+        label.addEventListener('mousedown', (e) => e.stopPropagation());
+        label.addEventListener('click', (e) => e.stopPropagation());
+    });
+    card.querySelectorAll('.komp-bild-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            e.stopPropagation();
+            uploadKomponenteBild(order._id, parseInt(input.dataset.kompIndex), input.files[0]);
+        });
+    });
+    card.querySelectorAll('.komp-bild-btn.komp-bild-da').forEach(btn => {
+        btn.draggable = false;
+        btn.addEventListener('mousedown', (e) => e.stopPropagation());
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openKomponenteBildModal(order._id, parseInt(btn.dataset.kompIndex));
         });
     });
 
@@ -2822,6 +2854,94 @@ async function setKomponenteCharge(orderId, idx, charge) {
         // Bei Fehler synct der nächste Poll den echten Stand
     }
 }
+
+// --- Wareneingangs-Foto je Komponente ---
+// Bewusst nie order.komponenten[idx].bild.data (base64) lokal in boardOrders
+// halten - sonst würde die Datei bei jeder Charge-/Datum-Änderung erneut per
+// PATCH mitgeschickt (siehe setKomponenteCharge/setKomponenteDatum, die die
+// ganze komponenten-Liste zurückschreiben). Für die Lightbox wird das Bild
+// deshalb separat und nur temporär nachgeladen.
+
+let komponenteBildKontext = null; // { orderId, idx } - während die Lightbox offen ist
+let komponenteBildObjectUrl = null;
+
+async function uploadKomponenteBild(orderId, idx, file) {
+    if (!file) return;
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order || !order.komponenten?.[idx]) return;
+    try {
+        const base64 = await fileToBase64(file);
+        const res = await fetch(`${API_URL}/orders/${orderId}/komponenten/${idx}/bild`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ filename: file.name, mimeType: file.type || 'image/jpeg', data: base64 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        order.komponenten[idx].bild = data;
+        renderAll();
+    } catch (err) {
+        alert('Foto-Upload fehlgeschlagen.');
+    }
+}
+
+async function openKomponenteBildModal(orderId, idx) {
+    const order = boardOrders.find(o => o._id === orderId);
+    const komponente = order?.komponenten?.[idx];
+    if (!komponente?.bild) return;
+    komponenteBildKontext = { orderId, idx };
+    const label = komponente.artikelnummer ? `${komponente.artikelnummer} - ${komponente.bezeichnung}` : komponente.bezeichnung;
+    document.getElementById('komponenteBildTitel').textContent = `Foto Wareneingang · ${label}`;
+    document.getElementById('komponenteBildSub').textContent = 'Wird geladen...';
+    document.getElementById('komponenteBildBox').innerHTML = '';
+    document.getElementById('komponenteBildModal').classList.remove('hidden');
+
+    try {
+        const res = await fetch(`${API_URL}/orders/${orderId}/komponenten/${idx}/bild`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const datei = await res.json();
+        if (!res.ok) throw new Error(datei.error);
+        if (komponenteBildObjectUrl) {
+            URL.revokeObjectURL(komponenteBildObjectUrl);
+        }
+        komponenteBildObjectUrl = base64ToObjectUrl(datei.data, datei.mimeType);
+        document.getElementById('komponenteBildSub').textContent = `${datei.filename} · ${new Date(datei.uploadedAt).toLocaleDateString('de-DE')}`;
+        document.getElementById('komponenteBildBox').innerHTML = `<img src="${komponenteBildObjectUrl}" alt="Foto Wareneingang">`;
+    } catch (err) {
+        document.getElementById('komponenteBildSub').textContent = 'Laden fehlgeschlagen.';
+    }
+}
+
+function closeKomponenteBildModal() {
+    document.getElementById('komponenteBildModal').classList.add('hidden');
+    if (komponenteBildObjectUrl) {
+        URL.revokeObjectURL(komponenteBildObjectUrl);
+        komponenteBildObjectUrl = null;
+    }
+    komponenteBildKontext = null;
+}
+
+async function removeKomponenteBild() {
+    if (!komponenteBildKontext) return;
+    const { orderId, idx } = komponenteBildKontext;
+    const order = boardOrders.find(o => o._id === orderId);
+    try {
+        const res = await fetch(`${API_URL}/orders/${orderId}/komponenten/${idx}/bild`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error();
+        if (order?.komponenten?.[idx]) order.komponenten[idx].bild = null;
+        closeKomponenteBildModal();
+        renderAll();
+    } catch (err) {
+        document.getElementById('komponenteBildSub').textContent = 'Entfernen fehlgeschlagen.';
+    }
+}
+
+document.getElementById('komponenteBildCloseBtn')?.addEventListener('click', closeKomponenteBildModal);
+document.getElementById('komponenteBildRemoveBtn')?.addEventListener('click', removeKomponenteBild);
 
 // --- Teilmengen (Auftrag auf mehrere Zeitfenster/Maschinen aufteilen) ---
 
