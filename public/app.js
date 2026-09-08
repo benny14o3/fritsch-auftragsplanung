@@ -1862,6 +1862,47 @@ function initFehlendeKomponentenToggle() {
     });
 }
 
+// Sortiert die Aufträge in jeder Spalte des Boards nach Liefertermin (früheste
+// zuerst, ohne Liefertermin ans Ende) - für den Fall, dass die Reihenfolge
+// durch viele einzelne Verschiebungen durcheinandergeraten ist und man wieder
+// "von vorn" nach Dringlichkeit ordnen will, ohne jede Karte einzeln zu ziehen.
+// Ändert nur die Position innerhalb der jeweiligen Spalte, nicht die
+// Maschinenzuordnung - anders als moveOrder (für Drag & Drop), das beides setzt.
+async function sortBoardByLiefertermin(dbType) {
+    const maschinenListe = MASCHINEN.filter(m => m.type === dbType);
+    const produktionOrders = boardOrders.filter(o => (!o.phase || o.phase === 'produktion') && o.dbType === dbType);
+    const spalten = [...maschinenListe, { id: null }];
+
+    const aenderungen = [];
+    spalten.forEach(spalte => {
+        const cards = produktionOrders
+            .filter(o => spalte.id === null ? !o.maschineId : (o.maschineId === spalte.id || o.maschineId2 === spalte.id))
+            .sort((a, b) => {
+                if (!a.lieferdatum && !b.lieferdatum) return 0;
+                if (!a.lieferdatum) return 1;
+                if (!b.lieferdatum) return -1;
+                return new Date(a.lieferdatum) - new Date(b.lieferdatum);
+            });
+        cards.forEach((order, idx) => {
+            if (order.position !== idx) aenderungen.push(order);
+        });
+        cards.forEach((order, idx) => { order.position = idx; });
+    });
+
+    if (aenderungen.length === 0) return;
+    renderBoard(dbType);
+    await Promise.all(aenderungen.map(order =>
+        fetch(`${API_URL}/orders/${order._id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ position: order.position }),
+        }).catch(() => {})
+    ));
+}
+
+document.getElementById('sortLieferterminBtnFormgebung')?.addEventListener('click', () => sortBoardByLiefertermin('Elastomer'));
+document.getElementById('sortLieferterminBtnCnc')?.addEventListener('click', () => sortBoardByLiefertermin('PTFE'));
+
 function renderBoard(dbType) {
     const suffix = DBTYPE_SUFFIX[dbType];
     const maschinenListe = MASCHINEN.filter(m => m.type === dbType);
