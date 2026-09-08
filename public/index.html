@@ -710,7 +710,7 @@
 
         <div class="modal-section">
             <h4>Produktionslenkungsplan</h4>
-            <p class="modal-sub" style="margin-bottom: 12px;">Prozessschritte werden auf dem Prozessbegleitschein abgehakt (in der hier gezeigten Reihenfolge), Maßprüfungen fließen in Erstfreigabe und Fehlersammelkarte ein. Mit ▲▼ umsortieren.</p>
+            <p class="modal-sub" style="margin-bottom: 12px;">Prozessschritte werden auf dem Prozessbegleitschein abgehakt (in der hier gezeigten Reihenfolge), Maßprüfungen und i.O./n.i.O.-Prüfungen fließen in Erstfreigabe und Fehlersammelkarte ein. Mit ▲▼ umsortieren.</p>
             <div class="table-container">
                 <table>
                     <thead>
@@ -722,7 +722,12 @@
             <div style="display: flex; gap: 8px; margin-top: 12px;">
                 <button class="btn btn-primary" id="articleDetailAddProzessBtn" style="width: auto;">+ Prozessschritt</button>
                 <button class="btn btn-primary" id="articleDetailAddMassBtn" style="width: auto;">+ Maßprüfung</button>
+                <button class="btn btn-primary" id="articleDetailAddIoBtn" style="width: auto;">+ i.O./n.i.O.-Prüfung</button>
             </div>
+            <!-- Vorschlagslisten fürs Bezeichnungsfeld (siehe updatePlpDatalists in app.js) -->
+            <datalist id="plpBezVorschlaegeProzess"></datalist>
+            <datalist id="plpBezVorschlaegeMasspruefung"></datalist>
+            <datalist id="plpBezVorschlaegeIopruefung"></datalist>
         </div>
 
         <button class="btn btn-primary" id="articleDetailSaveBtn">Speichern</button>

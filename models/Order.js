@@ -44,14 +44,17 @@ const laufzettelEintragSchema = new mongoose.Schema({
   zeitpunkt: { type: Date, default: null },
 }, { _id: false });
 
-// Eine Messung zu einem Maßprüfungs-Prüfpunkt (typ: 'masspruefung') - Log statt
-// Einzelwert, damit mehrere Messungen je Schicht/Auftrag dokumentiert werden
-// können (Fehlersammelkarte). ioNio wird serverseitig aus Istwert + Toleranz
-// aus dem Artikelstamm berechnet.
+// Eine Prüfung zu einem Maßprüfungs- oder i.O./n.i.O.-Prüfpunkt (typ:
+// 'masspruefung' bzw. 'iopruefung') - Log statt Einzelwert, damit mehrere
+// Prüfungen je Schicht/Auftrag dokumentiert werden können (Fehlersammelkarte).
+// Bei masspruefung wird ioNio serverseitig aus Istwert + Toleranz aus dem
+// Artikelstamm berechnet; bei iopruefung gibt es keinen Istwert, das Ergebnis
+// wird direkt vom Werker gewählt.
 const massungSchema = new mongoose.Schema({
   pruefpunktId: { type: mongoose.Schema.Types.ObjectId, required: true },
   bezeichnung: String,
-  istwert: { type: Number, required: true },
+  typ: { type: String, enum: ['masspruefung', 'iopruefung'], default: 'masspruefung' },
+  istwert: { type: Number, default: null }, // nur bei typ === 'masspruefung'
   sollwert: Number,
   toleranzMin: Number,
   toleranzMax: Number,
@@ -62,13 +65,14 @@ const massungSchema = new mongoose.Schema({
 });
 
 // Erstfreigabe (Erstmusterprüfung): dokumentiert vor Serienproduktion, mit
-// Schnappschuss der Messergebnisse zu allen Maßprüfungs-Prüfpunkten des
-// Artikels. Solange nicht erteilt, sperrt die Shopfloor-Route Laufzettel/FSK
+// Schnappschuss der Ergebnisse zu allen Maßprüfungs- UND i.O./n.i.O.-Prüfpunkten
+// des Artikels. Solange nicht erteilt, sperrt die Shopfloor-Route Laufzettel/FSK
 // für diesen Auftrag (siehe routes/shopfloor.js).
 const erstfreigabeMessungSchema = new mongoose.Schema({
   pruefpunktId: { type: mongoose.Schema.Types.ObjectId, required: true },
   bezeichnung: String,
-  istwert: Number,
+  typ: { type: String, enum: ['masspruefung', 'iopruefung'], default: 'masspruefung' },
+  istwert: Number, // nur bei typ === 'masspruefung'
   sollwert: Number,
   toleranzMin: Number,
   toleranzMax: Number,

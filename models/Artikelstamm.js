@@ -15,22 +15,25 @@ const zeichnungSchema = new mongoose.Schema({
   uploadedAt: { type: Date, default: Date.now },
 }, { _id: false });
 
-// Ein Punkt im Produktionslenkungsplan - entweder ein abzuhakender Prozessschritt
-// (treibt den Prozessbegleitschein) oder eine Maßprüfung mit Sollwert/Toleranz
-// (treibt die Erstfreigabe + Fehlersammelkarte). Behält eine eigene _id (anders
-// als die übrigen Artikel-Unterlisten), damit Order.laufzettel/massungen/
-// erstfreigabe per pruefpunktId auf den genauen Punkt verweisen können, auch
-// wenn Bezeichnung/Sollwert später bearbeitet werden - die Werte auf dem
-// Auftrag sind ein Schnappschuss zum Zeitpunkt der Erfassung und bleiben für
-// die Rückverfolgbarkeit unverändert, selbst wenn sich der Stammdatensatz ändert.
+// Ein Punkt im Produktionslenkungsplan - ein abzuhakender Prozessschritt
+// (treibt den Prozessbegleitschein), eine Maßprüfung mit Sollwert/Toleranz oder
+// eine reine i.O./n.i.O.-Prüfung ohne Messwert (z.B. Sichtprüfung) - beide
+// Prüfungs-Typen treiben die Erstfreigabe + Fehlersammelkarte. Behält eine
+// eigene _id (anders als die übrigen Artikel-Unterlisten), damit
+// Order.laufzettel/massungen/erstfreigabe per pruefpunktId auf den genauen
+// Punkt verweisen können, auch wenn Bezeichnung/Sollwert später bearbeitet
+// werden - die Werte auf dem Auftrag sind ein Schnappschuss zum Zeitpunkt der
+// Erfassung und bleiben für die Rückverfolgbarkeit unverändert, selbst wenn
+// sich der Stammdatensatz ändert.
 const plpEintragSchema = new mongoose.Schema({
   bezeichnung: { type: String, required: true },
-  typ: { type: String, enum: ['prozess', 'masspruefung'], default: 'prozess' },
+  typ: { type: String, enum: ['prozess', 'masspruefung', 'iopruefung'], default: 'prozess' },
   // Nur bei typ === 'masspruefung':
   sollwert: Number,
   toleranzMin: Number,
   toleranzMax: Number,
   einheit: String,
+  // Bei masspruefung und iopruefung (nicht bei prozess):
   pruefmittel: String,
   pruefhaeufigkeit: String,
 });

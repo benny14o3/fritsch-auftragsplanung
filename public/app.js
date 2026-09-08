@@ -963,17 +963,41 @@ async function removeArticleDetailDatei(feld) {
 
 // Maßprüfungs-Felder (Sollwert/Toleranz/Einheit) sind bei Prozessschritten
 // ausgeblendet, statt leere Zellen anzuzeigen, die dort nichts bedeuten.
+// Vorschläge fürs Bezeichnungsfeld: alle bereits verwendeten Bezeichnungen
+// desselben Prüfpunkt-Typs über alle Artikel hinweg, damit derselbe
+// Prozessschritt/dieselbe Prüfung nicht bei jedem Artikel neu eingetippt
+// werden muss. Ein <input list> statt einer strikten Auswahl, damit trotzdem
+// jederzeit ein neuer, noch nicht verwendeter Name eingegeben werden kann.
+const PLP_DATALIST_IDS = { prozess: 'plpBezVorschlaegeProzess', masspruefung: 'plpBezVorschlaegeMasspruefung', iopruefung: 'plpBezVorschlaegeIopruefung' };
+function updatePlpDatalists() {
+    Object.entries(PLP_DATALIST_IDS).forEach(([typ, id]) => {
+        const datalist = document.getElementById(id);
+        if (!datalist) return;
+        const namen = new Set();
+        artikelstamm.artikel.forEach(a => (a.plp || []).forEach(p => {
+            if (p.typ === typ && p.bezeichnung) namen.add(p.bezeichnung);
+        }));
+        datalist.innerHTML = [...namen].sort((a, b) => a.localeCompare(b, 'de')).map(name => `<option value="${escapeHtml(name)}">`).join('');
+    });
+}
+
+const PLP_TYP_LABEL = { prozess: 'Prozessschritt', masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.-Prüfung' };
+
 function renderArticleDetailPlp() {
+    updatePlpDatalists();
     const tbody = document.getElementById('articleDetailPlpTable');
     tbody.innerHTML = '';
     articleDetailPlpRows.forEach((row, idx) => {
         const tr = document.createElement('tr');
         const istMass = row.typ === 'masspruefung';
+        // Prüfmittel/Häufigkeit sind bei jeder Prüfung (Maß- oder i.O./n.i.O.-Prüfung)
+        // sinnvoll, nur bei einem reinen Prozessschritt nicht.
+        const istPruefung = istMass || row.typ === 'iopruefung';
 
         const typTd = document.createElement('td');
         const typSelect = document.createElement('select');
         typSelect.className = 'table-input';
-        [['prozess', 'Prozessschritt'], ['masspruefung', 'Maßprüfung']].forEach(([val, label]) => {
+        Object.entries(PLP_TYP_LABEL).forEach(([val, label]) => {
             const opt = document.createElement('option');
             opt.value = val;
             opt.textContent = label;
@@ -990,8 +1014,9 @@ function renderArticleDetailPlp() {
         const bezTd = document.createElement('td');
         const bezInput = document.createElement('input');
         bezInput.className = 'table-input';
-        bezInput.placeholder = istMass ? 'z.B. Außendurchmesser' : 'z.B. Entgraten';
+        bezInput.placeholder = istMass ? 'z.B. Außendurchmesser' : row.typ === 'iopruefung' ? 'z.B. Sichtprüfung Oberfläche' : 'z.B. Entgraten';
         bezInput.value = row.bezeichnung || '';
+        bezInput.setAttribute('list', PLP_DATALIST_IDS[row.typ] || PLP_DATALIST_IDS.prozess);
         bezInput.addEventListener('input', () => { articleDetailPlpRows[idx].bezeichnung = bezInput.value; });
         bezTd.appendChild(bezInput);
         tr.appendChild(bezTd);
@@ -1031,7 +1056,7 @@ function renderArticleDetailPlp() {
 
         ['pruefmittel', 'pruefhaeufigkeit'].forEach(key => {
             const td = document.createElement('td');
-            if (istMass) {
+            if (istPruefung) {
                 const input = document.createElement('input');
                 input.className = 'table-input';
                 input.value = row[key] || '';
@@ -1101,6 +1126,11 @@ document.getElementById('articleDetailAddProzessBtn')?.addEventListener('click',
 
 document.getElementById('articleDetailAddMassBtn')?.addEventListener('click', () => {
     articleDetailPlpRows.push({ typ: 'masspruefung', bezeichnung: '', sollwert: undefined, toleranzMin: undefined, toleranzMax: undefined, einheit: '', pruefmittel: '', pruefhaeufigkeit: '' });
+    renderArticleDetailPlp();
+});
+
+document.getElementById('articleDetailAddIoBtn')?.addEventListener('click', () => {
+    articleDetailPlpRows.push({ typ: 'iopruefung', bezeichnung: '', pruefmittel: '', pruefhaeufigkeit: '' });
     renderArticleDetailPlp();
 });
 

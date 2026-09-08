@@ -263,7 +263,7 @@ function renderPlp(plp) {
             <thead><tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Toleranz</th><th>Prüfmittel</th><th>Häufigkeit</th></tr></thead>
             <tbody>
                 ${plp.map(r => `<tr>
-                    <td>${r.typ === 'masspruefung' ? 'Maßprüfung' : 'Prozess'}</td>
+                    <td>${r.typ === 'masspruefung' ? 'Maßprüfung' : r.typ === 'iopruefung' ? 'i.O./n.i.O.' : 'Prozess'}</td>
                     <td>${r.bezeichnung || ''}</td>
                     <td>${r.typ === 'masspruefung' ? (r.sollwert ?? '–') + (r.einheit ? ' ' + r.einheit : '') : '–'}</td>
                     <td>${r.typ === 'masspruefung' ? formatToleranz(r) : '–'}</td>
@@ -335,10 +335,12 @@ function renderErstfreigabe(order, plp, erforderlich, offen) {
         return;
     }
 
-    const massPunkte = plp.filter(p => p.typ === 'masspruefung');
+    // Sowohl Maßprüfungs- als auch i.O./n.i.O.-Prüfpunkte müssen vor der Erstfreigabe
+    // dokumentiert und i.O. sein.
+    const massPunkte = plp.filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
     box.innerHTML = `
-        <div class="locked-note" style="margin-bottom: 14px;">🔒 Vor Serienproduktion müssen alle Maßprüfungen i.O. sein und die Erstfreigabe erteilt werden.</div>
-        ${massPunkte.map(p => `
+        <div class="locked-note" style="margin-bottom: 14px;">🔒 Vor Serienproduktion müssen alle Prüfungen i.O. sein und die Erstfreigabe erteilt werden.</div>
+        ${massPunkte.map(p => p.typ === 'masspruefung' ? `
             <div class="pruefpunkt-row">
                 <div class="pruefpunkt-head">
                     <span class="pruefpunkt-name">${p.bezeichnung}</span>
@@ -349,35 +351,61 @@ function renderErstfreigabe(order, plp, erforderlich, offen) {
                     <span class="io-badge" data-badge-id="${p._id}"></span>
                 </div>
             </div>
+        ` : `
+            <div class="pruefpunkt-row">
+                <div class="pruefpunkt-head">
+                    <span class="pruefpunkt-name">${p.bezeichnung}</span>
+                </div>
+                <div class="pruefpunkt-eingabe io-choice">
+                    <button type="button" class="io-choice-btn ok" data-io-pruefpunkt-id="${p._id}" data-io-ergebnis="i.O.">✅ i.O.</button>
+                    <button type="button" class="io-choice-btn nok" data-io-pruefpunkt-id="${p._id}" data-io-ergebnis="n.i.O.">❌ n.i.O.</button>
+                </div>
+            </div>
         `).join('')}
         <button class="btn btn-primary erstfreigabe-submit" id="erstfreigabeSubmitBtn" ${massPunkte.length === 0 ? '' : 'disabled'}>Erstfreigabe erteilen</button>
     `;
 
     const inputs = box.querySelectorAll('input[data-pruefpunkt-id]');
+    const ioBtns = box.querySelectorAll('[data-io-pruefpunkt-id]');
     const submitBtn = document.getElementById('erstfreigabeSubmitBtn');
+    // Auswahl bei i.O./n.i.O.-Punkten wird erst mit dem Erstfreigabe-Klick
+    // gesammelt abgeschickt (wie bei den Istwert-Feldern), nicht sofort.
+    const ioAuswahl = {};
 
     function pruefeVollstaendig() {
         if (massPunkte.length === 0) { submitBtn.disabled = false; return; }
         let alleIo = true;
-        inputs.forEach(input => {
-            const p = massPunkte.find(mp => String(mp._id) === input.dataset.pruefpunktId);
-            const badge = box.querySelector(`[data-badge-id="${p._id}"]`);
-            if (input.value === '') { badge.textContent = ''; badge.className = 'io-badge'; alleIo = false; return; }
-            const ioNio = berechneIoNioClient(Number(input.value), p.toleranzMin, p.toleranzMax);
-            badge.textContent = ioNio;
-            badge.className = `io-badge ${ioNio === 'i.O.' ? 'ok' : 'nok'}`;
-            if (ioNio === 'n.i.O.') alleIo = false;
+        massPunkte.forEach(p => {
+            if (p.typ === 'masspruefung') {
+                const input = box.querySelector(`input[data-pruefpunkt-id="${p._id}"]`);
+                const badge = box.querySelector(`[data-badge-id="${p._id}"]`);
+                if (input.value === '') { badge.textContent = ''; badge.className = 'io-badge'; alleIo = false; return; }
+                const ioNio = berechneIoNioClient(Number(input.value), p.toleranzMin, p.toleranzMax);
+                badge.textContent = ioNio;
+                badge.className = `io-badge ${ioNio === 'i.O.' ? 'ok' : 'nok'}`;
+                if (ioNio === 'n.i.O.') alleIo = false;
+            } else {
+                const ergebnis = ioAuswahl[p._id];
+                if (!ergebnis || ergebnis === 'n.i.O.') alleIo = false;
+            }
         });
         submitBtn.disabled = !alleIo;
     }
     inputs.forEach(input => input.addEventListener('input', pruefeVollstaendig));
+    ioBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const pid = btn.dataset.ioPruefpunktId;
+            ioAuswahl[pid] = btn.dataset.ioErgebnis;
+            box.querySelectorAll(`[data-io-pruefpunkt-id="${pid}"]`).forEach(b => b.classList.toggle('selected', b === btn));
+            pruefeVollstaendig();
+        });
+    });
     pruefeVollstaendig();
 
     submitBtn.addEventListener('click', async () => {
-        const messungen = massPunkte.map(p => ({
-            pruefpunktId: p._id,
-            istwert: Number(box.querySelector(`input[data-pruefpunkt-id="${p._id}"]`).value),
-        }));
+        const messungen = massPunkte.map(p => p.typ === 'masspruefung'
+            ? { pruefpunktId: p._id, istwert: Number(box.querySelector(`input[data-pruefpunkt-id="${p._id}"]`).value) }
+            : { pruefpunktId: p._id, ergebnis: ioAuswahl[p._id] });
         submitBtn.disabled = true;
         try {
             const res = await fetch(`${API_URL}/orders/${activeOrderId}/erstfreigabe`, {
@@ -394,30 +422,40 @@ function renderErstfreigabe(order, plp, erforderlich, offen) {
     });
 }
 
-// --- Maßprüfungen auf der Fehlersammelkarte ---
+// --- Maßprüfungen und i.O./n.i.O.-Prüfungen auf der Fehlersammelkarte ---
 
 function renderMassungen(order, plp) {
     const box = document.getElementById('massungenBox');
-    const massPunkte = (plp || []).filter(p => p.typ === 'masspruefung');
-    if (massPunkte.length === 0) { box.innerHTML = ''; return; }
+    const pruefPunkte = (plp || []).filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
+    if (pruefPunkte.length === 0) { box.innerHTML = ''; return; }
 
     const massungen = order.massungen || [];
-    box.innerHTML = `<h4 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; margin-bottom: 10px;">Maßprüfungen</h4>` + massPunkte.map(p => {
+    box.innerHTML = `<h4 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; margin-bottom: 10px;">Maßprüfungen</h4>` + pruefPunkte.map(p => {
         const log = massungen.filter(m => String(m.pruefpunktId) === String(p._id)).slice().reverse();
+        const istMass = p.typ === 'masspruefung';
+        // Maßprüfung: Istwert eintragen, live i.O./n.i.O.-Vorschau, "Erfassen" speichert.
+        // i.O./n.i.O.-Prüfung (z.B. Sichtprüfung): kein Messwert, ein Tap erfasst direkt.
+        const eingabe = istMass
+            ? `<div class="pruefpunkt-eingabe">
+                <input type="number" step="any" inputmode="decimal" data-massung-pruefpunkt="${p._id}" placeholder="Istwert">
+                <span class="io-badge" data-massung-badge="${p._id}"></span>
+                <button data-massung-add="${p._id}">Erfassen</button>
+            </div>`
+            : `<div class="pruefpunkt-eingabe io-choice">
+                <button class="io-choice-btn ok" data-massung-io="${p._id}" data-massung-ergebnis="i.O.">✅ i.O.</button>
+                <button class="io-choice-btn nok" data-massung-io="${p._id}" data-massung-ergebnis="n.i.O.">❌ n.i.O.</button>
+            </div>`;
         return `
             <div class="pruefpunkt-row">
                 <div class="pruefpunkt-head">
                     <span class="pruefpunkt-name">${p.bezeichnung}</span>
-                    <span class="pruefpunkt-soll">Soll ${p.sollwert ?? '–'}${p.einheit ? ' ' + p.einheit : ''} (${formatToleranz(p)})</span>
+                    ${istMass ? `<span class="pruefpunkt-soll">Soll ${p.sollwert ?? '–'}${p.einheit ? ' ' + p.einheit : ''} (${formatToleranz(p)})</span>` : ''}
                 </div>
-                <div class="pruefpunkt-eingabe">
-                    <input type="number" step="any" inputmode="decimal" data-massung-pruefpunkt="${p._id}" placeholder="Istwert">
-                    <button data-massung-add="${p._id}">Erfassen</button>
-                </div>
+                ${eingabe}
                 <div class="massung-log">
                     ${log.map(m => `
                         <div class="massung-log-row">
-                            <span>${m.istwert}${m.einheit ? ' ' + m.einheit : ''} <span class="io-badge ${m.ioNio === 'i.O.' ? 'ok' : 'nok'}">${m.ioNio}</span> · ${m.kuerzel} · ${new Date(m.zeitpunkt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span>${m.istwert != null ? m.istwert + (m.einheit ? ' ' + m.einheit : '') + ' ' : ''}<span class="io-badge ${m.ioNio === 'i.O.' ? 'ok' : 'nok'}">${m.ioNio}</span> · ${m.kuerzel} · ${new Date(m.zeitpunkt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
                             <button data-massung-del="${m._id}">✕</button>
                         </div>
                     `).join('')}
@@ -426,25 +464,38 @@ function renderMassungen(order, plp) {
         `;
     }).join('');
 
+    box.querySelectorAll('input[data-massung-pruefpunkt]').forEach(input => {
+        const p = pruefPunkte.find(pp => String(pp._id) === input.dataset.massungPruefpunkt);
+        const badge = box.querySelector(`[data-massung-badge="${p._id}"]`);
+        input.addEventListener('input', () => {
+            if (input.value === '') { badge.textContent = ''; badge.className = 'io-badge'; return; }
+            const ioNio = berechneIoNioClient(Number(input.value), p.toleranzMin, p.toleranzMax);
+            badge.textContent = ioNio;
+            badge.className = `io-badge ${ioNio === 'i.O.' ? 'ok' : 'nok'}`;
+        });
+    });
     box.querySelectorAll('[data-massung-add]').forEach(btn => {
         btn.addEventListener('click', () => {
             const pruefpunktId = btn.dataset.massungAdd;
             const input = box.querySelector(`input[data-massung-pruefpunkt="${pruefpunktId}"]`);
             if (input.value === '') return;
-            addMassung(pruefpunktId, Number(input.value));
+            addMassung(pruefpunktId, { istwert: Number(input.value) });
         });
+    });
+    box.querySelectorAll('[data-massung-io]').forEach(btn => {
+        btn.addEventListener('click', () => addMassung(btn.dataset.massungIo, { ergebnis: btn.dataset.massungErgebnis }));
     });
     box.querySelectorAll('[data-massung-del]').forEach(btn => {
         btn.addEventListener('click', () => removeMassung(btn.dataset.massungDel));
     });
 }
 
-async function addMassung(pruefpunktId, istwert) {
+async function addMassung(pruefpunktId, payload) {
     try {
         await fetch(`${API_URL}/orders/${activeOrderId}/massung`, {
             method: 'POST',
             headers: authHeaders(),
-            body: JSON.stringify({ pruefpunktId, istwert }),
+            body: JSON.stringify({ pruefpunktId, ...payload }),
         });
         fetchDetail(activeOrderId);
     } catch (err) { /* ignore */ }

@@ -146,14 +146,22 @@ router.post('/orders/:orderId/erstfreigabe', shopfloorAuthMiddleware, async (req
       return res.status(409).json({ error: 'Erstfreigabe wurde bereits erteilt' });
     }
 
-    const massPunkte = artikel.plp.filter(p => p.typ === 'masspruefung');
-    const eingaben = new Map((req.body.messungen || []).map(m => [String(m.pruefpunktId), m.istwert]));
+    const massPunkte = artikel.plp.filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
+    const eingaben = new Map((req.body.messungen || []).map(m => [String(m.pruefpunktId), m]));
 
     const messungen = [];
     const fehlend = [];
     const nichtIo = [];
     massPunkte.forEach(p => {
-      const istwert = eingaben.get(String(p._id));
+      const eingabe = eingaben.get(String(p._id));
+      if (p.typ === 'iopruefung') {
+        const ergebnis = eingabe?.ergebnis;
+        if (ergebnis !== 'i.O.' && ergebnis !== 'n.i.O.') { fehlend.push(p.bezeichnung); return; }
+        if (ergebnis === 'n.i.O.') nichtIo.push(p.bezeichnung);
+        messungen.push({ pruefpunktId: p._id, bezeichnung: p.bezeichnung, typ: 'iopruefung', ioNio: ergebnis });
+        return;
+      }
+      const istwert = eingabe?.istwert;
       if (istwert === undefined || istwert === null || istwert === '') {
         fehlend.push(p.bezeichnung);
         return;
@@ -162,7 +170,7 @@ router.post('/orders/:orderId/erstfreigabe', shopfloorAuthMiddleware, async (req
       const ioNio = berechneIoNio(wert, p.toleranzMin, p.toleranzMax);
       if (ioNio === 'n.i.O.') nichtIo.push(p.bezeichnung);
       messungen.push({
-        pruefpunktId: p._id, bezeichnung: p.bezeichnung, istwert: wert,
+        pruefpunktId: p._id, bezeichnung: p.bezeichnung, typ: 'masspruefung', istwert: wert,
         sollwert: p.sollwert, toleranzMin: p.toleranzMin, toleranzMax: p.toleranzMax, einheit: p.einheit,
         ioNio,
       });
@@ -236,26 +244,39 @@ router.delete('/orders/:orderId/fehler/:entryId', shopfloorAuthMiddleware, async
 // mehrere Messungen je Schicht/Auftrag sind auf der Fehlersammelkarte üblich).
 router.post('/orders/:orderId/massung', shopfloorAuthMiddleware, async (req, res) => {
   try {
-    const { pruefpunktId, istwert } = req.body;
-    if (!pruefpunktId || istwert === undefined || istwert === null || istwert === '') {
-      return res.status(400).json({ error: 'Prüfpunkt und Istwert erforderlich' });
-    }
+    const { pruefpunktId, istwert, ergebnis } = req.body;
+    if (!pruefpunktId) return res.status(400).json({ error: 'Prüfpunkt erforderlich' });
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     const artikel = await getArtikelFuerOrder(order);
     if (istErstfreigabeOffen(order, artikel)) {
       return res.status(403).json({ error: 'Erstfreigabe steht noch aus' });
     }
-    const punkt = artikel?.plp?.find(p => String(p._id) === pruefpunktId && p.typ === 'masspruefung');
-    if (!punkt) return res.status(404).json({ error: 'Maßprüfungs-Prüfpunkt nicht gefunden' });
+    const punkt = artikel?.plp?.find(p => String(p._id) === pruefpunktId && (p.typ === 'masspruefung' || p.typ === 'iopruefung'));
+    if (!punkt) return res.status(404).json({ error: 'Prüfpunkt nicht gefunden' });
 
-    const wert = Number(istwert);
-    order.massungen.push({
-      pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, istwert: wert,
-      sollwert: punkt.sollwert, toleranzMin: punkt.toleranzMin, toleranzMax: punkt.toleranzMax, einheit: punkt.einheit,
-      ioNio: berechneIoNio(wert, punkt.toleranzMin, punkt.toleranzMax),
-      kuerzel: req.shopfloorKuerzel, zeitpunkt: new Date(),
-    });
+    let eintrag;
+    if (punkt.typ === 'iopruefung') {
+      if (ergebnis !== 'i.O.' && ergebnis !== 'n.i.O.') {
+        return res.status(400).json({ error: 'Ergebnis muss i.O. oder n.i.O. sein' });
+      }
+      eintrag = {
+        pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, typ: 'iopruefung',
+        ioNio: ergebnis, kuerzel: req.shopfloorKuerzel, zeitpunkt: new Date(),
+      };
+    } else {
+      if (istwert === undefined || istwert === null || istwert === '') {
+        return res.status(400).json({ error: 'Istwert erforderlich' });
+      }
+      const wert = Number(istwert);
+      eintrag = {
+        pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, typ: 'masspruefung', istwert: wert,
+        sollwert: punkt.sollwert, toleranzMin: punkt.toleranzMin, toleranzMax: punkt.toleranzMax, einheit: punkt.einheit,
+        ioNio: berechneIoNio(wert, punkt.toleranzMin, punkt.toleranzMax),
+        kuerzel: req.shopfloorKuerzel, zeitpunkt: new Date(),
+      };
+    }
+    order.massungen.push(eintrag);
     await order.save();
     res.status(201).json(order.massungen);
   } catch (err) { res.status(500).json({ error: err.message }); }

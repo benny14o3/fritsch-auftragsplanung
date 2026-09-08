@@ -54,9 +54,11 @@ async function pdfCoverSeite(pdfDoc, font, fontBold, article) {
     return page;
 }
 
+const PLP_TYP_LABEL_EXPORT = { masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.', prozess: 'Prozess' };
+
 function pdfPlpTabelle(pdfDoc, font, fontBold, plp) {
     const spalten = [
-        { key: 'typ', label: 'Typ', breite: 65, get: (p) => p.typ === 'masspruefung' ? 'Maßprüfung' : 'Prozess' },
+        { key: 'typ', label: 'Typ', breite: 65, get: (p) => PLP_TYP_LABEL_EXPORT[p.typ] || 'Prozess' },
         { key: 'bezeichnung', label: 'Bezeichnung', breite: 130, get: (p) => p.bezeichnung || '' },
         { key: 'sollwert', label: 'Sollwert', breite: 60, get: (p) => p.typ === 'masspruefung' ? `${p.sollwert ?? '–'}${p.einheit ? ' ' + p.einheit : ''}` : '–' },
         { key: 'toleranz', label: 'Toleranz', breite: 90, get: (p) => p.typ === 'masspruefung' ? pruefpunktToleranzText(p) : '–' },
@@ -174,8 +176,8 @@ function exportFskHistorie(material, bezeichnung, auftraege) {
 
     const massungen = [];
     auftraege.forEach(o => (o.massungen || []).forEach(m => massungen.push({
-        'Auftrag': o.auftragsnummer, 'Prüfpunkt': m.bezeichnung, 'Istwert': m.istwert,
-        'Sollwert': m.sollwert ?? '', 'Tol. min': m.toleranzMin ?? '', 'Tol. max': m.toleranzMax ?? '',
+        'Auftrag': o.auftragsnummer, 'Typ': PLP_TYP_LABEL_EXPORT[m.typ] || 'Maßprüfung', 'Prüfpunkt': m.bezeichnung,
+        'Istwert': m.istwert ?? '', 'Sollwert': m.sollwert ?? '', 'Tol. min': m.toleranzMin ?? '', 'Tol. max': m.toleranzMax ?? '',
         'Einheit': m.einheit || '', 'Ergebnis': m.ioNio, 'Kürzel': m.kuerzel,
         'Zeitpunkt': new Date(m.zeitpunkt).toLocaleString('de-DE'),
     })));
@@ -185,7 +187,7 @@ function exportFskHistorie(material, bezeichnung, auftraege) {
         .flatMap(o => (o.erstfreigabe.messungen || []).map(m => ({
             'Auftrag': o.auftragsnummer, 'Erteilt von': o.erstfreigabe.kuerzel,
             'Erteilt am': new Date(o.erstfreigabe.zeitpunkt).toLocaleString('de-DE'),
-            'Prüfpunkt': m.bezeichnung, 'Istwert': m.istwert, 'Sollwert': m.sollwert ?? '',
+            'Typ': PLP_TYP_LABEL_EXPORT[m.typ] || 'Maßprüfung', 'Prüfpunkt': m.bezeichnung, 'Istwert': m.istwert ?? '', 'Sollwert': m.sollwert ?? '',
             'Tol. min': m.toleranzMin ?? '', 'Tol. max': m.toleranzMax ?? '', 'Einheit': m.einheit || '', 'Ergebnis': m.ioNio,
         })));
 
