@@ -1,5 +1,6 @@
 const express = require('express');
 const Order = require('../models/Order');
+const Artikelstamm = require('../models/Artikelstamm');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
 
@@ -147,6 +148,59 @@ router.post('/manual', authMiddleware, adminMiddleware, async (req, res) => {
       updatedBy: req.userId,
     });
     res.status(201).json(created);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Gleicht die Komponenten laufender Aufträge mit der aktuellen Stückliste im
+// Artikelstamm ab - z.B. nachdem eine Stückliste nachträglich korrigiert wurde
+// und bereits geplante Aufträge noch die alte Zusammensetzung tragen. Bereits
+// erfasster Wareneingang/Charge/Foto bleibt je Komponente erhalten (per
+// Komponenten-Artikelnummer gematcht), nur die Liste selbst (neue/entfallene
+// Komponenten, geänderte Bezeichnung) wird nachgezogen.
+router.post('/sync-komponenten', authMiddleware, async (req, res) => {
+  try {
+    const { dbType } = req.body;
+    const filter = { phase: 'produktion' };
+    if (dbType) filter.dbType = dbType;
+    const orders = await Order.find(filter);
+    const artikelstamm = await Artikelstamm.findOne();
+    const artikelByMaterial = new Map((artikelstamm?.artikel || []).map(a => [a.material, a]));
+
+    const schluessel = k => k.artikelnummer || `#${k.bezeichnung}`;
+    let aktualisiert = 0;
+
+    for (const order of orders) {
+      const artikel = artikelByMaterial.get(order.artikelnummer);
+      if (!artikel) continue; // Artikel nicht (mehr) im Stamm - Auftrag unangetastet lassen
+
+      const sollListe = (artikel.komponenten || []).map(k => ({ artikelnummer: k.artikelnummer || '', bezeichnung: k.bezeichnung }));
+      // Das Werkzeug steht nicht in der Stückliste, gilt aber für jeden
+      // Formgebungs-Artikel (siehe planMachines/manuelle Auftragsanlage in app.js).
+      if (order.dbType === 'Elastomer') {
+        sollListe.push({ artikelnummer: '', bezeichnung: 'Werkzeug' });
+      }
+
+      const bestehende = new Map(order.komponenten.map(k => [schluessel(k), k]));
+      const unveraendert = sollListe.length === order.komponenten.length &&
+        sollListe.every((soll, i) => schluessel(soll) === schluessel(order.komponenten[i]) && soll.bezeichnung === order.komponenten[i].bezeichnung);
+      if (unveraendert) continue;
+
+      order.komponenten = sollListe.map(soll => {
+        const alt = bestehende.get(schluessel(soll));
+        return {
+          artikelnummer: soll.artikelnummer,
+          bezeichnung: soll.bezeichnung,
+          wareneingang: alt?.wareneingang ?? null,
+          charge: alt?.charge ?? '',
+          bild: alt?.bild ?? null,
+        };
+      });
+      order.updatedBy = req.userId;
+      await order.save();
+      aktualisiert++;
+    }
+
+    res.json({ aktualisiert, geprueft: orders.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -2498,6 +2498,55 @@ async function handleDeleteAllOrders(dbType) {
 document.getElementById('deleteAllOrdersBtnFormgebung')?.addEventListener('click', () => handleDeleteAllOrders('Elastomer'));
 document.getElementById('deleteAllOrdersBtnCnc')?.addEventListener('click', () => handleDeleteAllOrders('PTFE'));
 
+// Wie handleDeleteAllOrders: kein natives confirm(), zweiter Klick innerhalb von
+// 5s bestätigt. Gleicht die Komponenten aller laufenden Aufträge (Phase
+// Produktion) des Bereichs mit der aktuellen Stückliste im Artikelstamm ab -
+// für den Fall, dass eine Stückliste nachträglich korrigiert wurde. Bereits
+// erfasster Wareneingang/Charge/Foto bleibt serverseitig je Komponente erhalten
+// (siehe POST /orders/sync-komponenten).
+const syncKomponentenState = {};
+async function handleSyncKomponenten(dbType) {
+    const suffix = DBTYPE_SUFFIX[dbType];
+    const btn = document.getElementById('syncKomponentenBtn' + suffix);
+    const note = document.getElementById('syncKomponentenNote' + suffix);
+    const state = syncKomponentenState[dbType] || (syncKomponentenState[dbType] = { confirming: false, timer: null });
+
+    if (!state.confirming) {
+        state.confirming = true;
+        btn.textContent = 'Wirklich aktualisieren? Nochmal klicken';
+        state.timer = setTimeout(() => {
+            state.confirming = false;
+            btn.textContent = '🔄 Komponenten aus Stückliste aktualisieren';
+        }, 5000);
+        return;
+    }
+    clearTimeout(state.timer);
+    state.confirming = false;
+    btn.textContent = '🔄 Komponenten aus Stückliste aktualisieren';
+
+    note.style.color = '#64748b';
+    note.textContent = 'Wird aktualisiert...';
+    try {
+        const res = await fetch(`${API_URL}/orders/sync-komponenten`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ dbType }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        note.style.color = '#15803d';
+        note.textContent = data.aktualisiert > 0
+            ? `${data.aktualisiert} von ${data.geprueft} Aufträgen aktualisiert.`
+            : `Keine Änderungen nötig (${data.geprueft} Aufträge geprüft).`;
+        await fetchBoard();
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Aktualisieren fehlgeschlagen. Bitte erneut versuchen.';
+    }
+}
+document.getElementById('syncKomponentenBtnFormgebung')?.addEventListener('click', () => handleSyncKomponenten('Elastomer'));
+document.getElementById('syncKomponentenBtnCnc')?.addEventListener('click', () => handleSyncKomponenten('PTFE'));
+
 // Berechnungsformel für Bearbeitungszeit/Schichten/Tage einer Menge - geteilt
 // zwischen Erstplanung, manueller Anlage und Teilmengen-Aufteilung, damit alle
 // drei exakt gleich rechnen.
