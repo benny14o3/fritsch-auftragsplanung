@@ -2,7 +2,12 @@ const API_URL = '/api/shopfloor';
 let token = localStorage.getItem('shopfloorToken');
 let currentUser = JSON.parse(localStorage.getItem('shopfloorUser') || 'null');
 
-const FEHLERARTEN = ['Lunker', 'Grat', 'Verschmutzung', 'Maßabweichung', 'Oberflächenfehler', 'Einfallstelle', 'Bruch/Riss', 'Verfärbung', 'Sonstiges'];
+// Fester Fehlerarten-Katalog von der physischen Fehlersammelkarte (FSK) -
+// zusammengeführt aus den beiden Kartenvarianten "FSK allgemein Vorderseite"
+// und "FSK Prozeß-Status" (die Vorderseite hat statt "Zusatzteil/Feder" zwei
+// artikelspezifische Zeilen wie Werkzeugtemperatur/Maßüberprüfung, die schon
+// über die Prüfpunkte/Massungen je Artikel abgedeckt sind, siehe renderMassungen).
+const FEHLERARTEN = ['Luft-, Fließfehler', 'Wkzg.-Verschmutzung', 'Blasen', 'Material fehlt', 'Zusatzteil/Feder', 'Dichtkantenfehler', 'Stechfehler', 'Doppelschnitt', 'Fremdkörper/Stippen', 'Werkzeugfehler', 'Abfall', 'Platzer', 'Blech n.i.O.', 'Rohling', 'Sonstige'];
 
 let boardOrders = [];
 let activeTab = 'Elastomer';
