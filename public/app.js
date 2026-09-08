@@ -2499,35 +2499,36 @@ document.getElementById('deleteAllOrdersBtnFormgebung')?.addEventListener('click
 document.getElementById('deleteAllOrdersBtnCnc')?.addEventListener('click', () => handleDeleteAllOrders('PTFE'));
 
 // Wie handleDeleteAllOrders: kein natives confirm(), zweiter Klick innerhalb von
-// 5s bestätigt. Gleicht die Komponenten aller laufenden Aufträge (Phase
-// Produktion) des Bereichs mit der aktuellen Stückliste im Artikelstamm ab -
-// für den Fall, dass eine Stückliste nachträglich korrigiert wurde. Bereits
-// erfasster Wareneingang/Charge/Foto bleibt serverseitig je Komponente erhalten
-// (siehe POST /orders/sync-komponenten).
-const syncKomponentenState = {};
-async function handleSyncKomponenten(dbType) {
+// 5s bestätigt. Gleicht alle laufenden Aufträge (Phase Produktion) des Bereichs
+// mit dem aktuellen Artikelstamm ab - Stückliste (neue/entfallene Komponenten)
+// UND Prozesszeiten (Kavität/Runden pro Schicht/Zeit pro 100), falls direkt in
+// der Datenbank oder Artikelverwaltung nachträglich korrigiert. Bereits
+// erfasster Wareneingang/Charge/Foto sowie ein gesetzter Starttermin bleiben
+// serverseitig erhalten (siehe POST /orders/sync-artikeldaten).
+const syncArtikelState = {};
+async function handleSyncArtikeldaten(dbType) {
     const suffix = DBTYPE_SUFFIX[dbType];
-    const btn = document.getElementById('syncKomponentenBtn' + suffix);
-    const note = document.getElementById('syncKomponentenNote' + suffix);
-    const state = syncKomponentenState[dbType] || (syncKomponentenState[dbType] = { confirming: false, timer: null });
+    const btn = document.getElementById('syncArtikelBtn' + suffix);
+    const note = document.getElementById('syncArtikelNote' + suffix);
+    const state = syncArtikelState[dbType] || (syncArtikelState[dbType] = { confirming: false, timer: null });
 
     if (!state.confirming) {
         state.confirming = true;
         btn.textContent = 'Wirklich aktualisieren? Nochmal klicken';
         state.timer = setTimeout(() => {
             state.confirming = false;
-            btn.textContent = '🔄 Komponenten aus Stückliste aktualisieren';
+            btn.textContent = '🔄 Artikeldaten aktualisieren';
         }, 5000);
         return;
     }
     clearTimeout(state.timer);
     state.confirming = false;
-    btn.textContent = '🔄 Komponenten aus Stückliste aktualisieren';
+    btn.textContent = '🔄 Artikeldaten aktualisieren';
 
     note.style.color = '#64748b';
     note.textContent = 'Wird aktualisiert...';
     try {
-        const res = await fetch(`${API_URL}/orders/sync-komponenten`, {
+        const res = await fetch(`${API_URL}/orders/sync-artikeldaten`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ dbType }),
@@ -2544,8 +2545,8 @@ async function handleSyncKomponenten(dbType) {
         note.textContent = 'Aktualisieren fehlgeschlagen. Bitte erneut versuchen.';
     }
 }
-document.getElementById('syncKomponentenBtnFormgebung')?.addEventListener('click', () => handleSyncKomponenten('Elastomer'));
-document.getElementById('syncKomponentenBtnCnc')?.addEventListener('click', () => handleSyncKomponenten('PTFE'));
+document.getElementById('syncArtikelBtnFormgebung')?.addEventListener('click', () => handleSyncArtikeldaten('Elastomer'));
+document.getElementById('syncArtikelBtnCnc')?.addEventListener('click', () => handleSyncArtikeldaten('PTFE'));
 
 // Berechnungsformel für Bearbeitungszeit/Schichten/Tage einer Menge - geteilt
 // zwischen Erstplanung, manueller Anlage und Teilmengen-Aufteilung, damit alle

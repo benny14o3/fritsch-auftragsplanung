@@ -151,13 +151,42 @@ router.post('/manual', authMiddleware, adminMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Gleicht die Komponenten laufender Aufträge mit der aktuellen Stückliste im
-// Artikelstamm ab - z.B. nachdem eine Stückliste nachträglich korrigiert wurde
-// und bereits geplante Aufträge noch die alte Zusammensetzung tragen. Bereits
-// erfasster Wareneingang/Charge/Foto bleibt je Komponente erhalten (per
-// Komponenten-Artikelnummer gematcht), nur die Liste selbst (neue/entfallene
-// Komponenten, geänderte Bezeichnung) wird nachgezogen.
-router.post('/sync-komponenten', authMiddleware, async (req, res) => {
+function istWochentag(date) {
+  const tag = date.getDay();
+  return tag !== 0 && tag !== 6;
+}
+
+function addWorkdays(date, tage) {
+  const d = new Date(date);
+  let hinzugefuegt = 0;
+  while (hinzugefuegt < tage) {
+    d.setDate(d.getDate() + 1);
+    if (istWochentag(d)) hinzugefuegt++;
+  }
+  return d;
+}
+
+// Gleiche Formel wie berechneBearbeitungszeit() in public/app.js.
+function berechneBearbeitungszeit(dbType, menge, kavitaet, rundenProSchicht, zeitProHundert) {
+  const bearbeitungsMin = dbType === 'PTFE'
+    ? (menge / 100) * (zeitProHundert || 0)
+    : Math.ceil(menge / (kavitaet || 1)) * (480 / (rundenProSchicht || 1));
+  const schichten = Math.ceil(bearbeitungsMin / 480);
+  return { bearbeitungsMin, schichten, tage: Math.max(1, schichten) };
+}
+
+// Gleicht laufende Aufträge mit den aktuellen Artikelstamm-Daten ab - z.B.
+// nachdem eine Stückliste oder ein Prozesswert (Kavität/Runden pro Schicht/
+// Zeit pro 100) nachträglich korrigiert wurde und bereits geplante Aufträge
+// noch die alten Werte tragen (die werden beim Import/Anlegen einmalig
+// kopiert, siehe planMachines in app.js, und danach nicht mehr automatisch
+// nachgezogen). Komponenten: bereits erfasster Wareneingang/Charge/Foto bleibt
+// je Komponente erhalten (per Komponenten-Artikelnummer gematcht), nur die
+// Liste selbst (neue/entfallene Komponenten, geänderte Bezeichnung) wird
+// nachgezogen. Prozesszeiten: bearbeitungsMin/schichten (Haupt- und jeder
+// Teilmengen-Abschnitt) werden neu berechnet, ein bereits gesetztes Startdatum
+// bleibt fix, nur das Enddatum verschiebt sich entsprechend.
+router.post('/sync-artikeldaten', authMiddleware, async (req, res) => {
   try {
     const { dbType } = req.body;
     const filter = { phase: 'produktion' };
@@ -173,6 +202,8 @@ router.post('/sync-komponenten', authMiddleware, async (req, res) => {
       const artikel = artikelByMaterial.get(order.artikelnummer);
       if (!artikel) continue; // Artikel nicht (mehr) im Stamm - Auftrag unangetastet lassen
 
+      let geaendert = false;
+
       const sollListe = (artikel.komponenten || []).map(k => ({ artikelnummer: k.artikelnummer || '', bezeichnung: k.bezeichnung }));
       // Das Werkzeug steht nicht in der Stückliste, gilt aber für jeden
       // Formgebungs-Artikel (siehe planMachines/manuelle Auftragsanlage in app.js).
@@ -181,20 +212,45 @@ router.post('/sync-komponenten', authMiddleware, async (req, res) => {
       }
 
       const bestehende = new Map(order.komponenten.map(k => [schluessel(k), k]));
-      const unveraendert = sollListe.length === order.komponenten.length &&
+      const komponentenUnveraendert = sollListe.length === order.komponenten.length &&
         sollListe.every((soll, i) => schluessel(soll) === schluessel(order.komponenten[i]) && soll.bezeichnung === order.komponenten[i].bezeichnung);
-      if (unveraendert) continue;
+      if (!komponentenUnveraendert) {
+        order.komponenten = sollListe.map(soll => {
+          const alt = bestehende.get(schluessel(soll));
+          return {
+            artikelnummer: soll.artikelnummer,
+            bezeichnung: soll.bezeichnung,
+            wareneingang: alt?.wareneingang ?? null,
+            charge: alt?.charge ?? '',
+            bild: alt?.bild ?? null,
+          };
+        });
+        geaendert = true;
+      }
 
-      order.komponenten = sollListe.map(soll => {
-        const alt = bestehende.get(schluessel(soll));
-        return {
-          artikelnummer: soll.artikelnummer,
-          bezeichnung: soll.bezeichnung,
-          wareneingang: alt?.wareneingang ?? null,
-          charge: alt?.charge ?? '',
-          bild: alt?.bild ?? null,
-        };
-      });
+      const zeitenUnveraendert = (order.kavitaet ?? 0) === (artikel.kavitaet ?? 0)
+        && (order.rundenProSchicht ?? 0) === (artikel.rundenProSchicht ?? 0)
+        && (order.zeitProHundert ?? 0) === (artikel.zeitProHundert ?? 0);
+      if (!zeitenUnveraendert) {
+        order.kavitaet = artikel.kavitaet;
+        order.rundenProSchicht = artikel.rundenProSchicht;
+        order.zeitProHundert = artikel.zeitProHundert;
+
+        const haupt = berechneBearbeitungszeit(order.dbType, order.menge, artikel.kavitaet, artikel.rundenProSchicht, artikel.zeitProHundert);
+        order.bearbeitungsMin = haupt.bearbeitungsMin;
+        order.schichten = haupt.schichten;
+        if (order.startDatum) order.endDatum = addWorkdays(new Date(order.startDatum), haupt.tage - 1);
+
+        order.teilmengen.forEach(t => {
+          const teil = berechneBearbeitungszeit(order.dbType, t.menge, artikel.kavitaet, artikel.rundenProSchicht, artikel.zeitProHundert);
+          t.bearbeitungsMin = teil.bearbeitungsMin;
+          t.schichten = teil.schichten;
+          if (t.startDatum) t.endDatum = addWorkdays(new Date(t.startDatum), teil.tage - 1);
+        });
+        geaendert = true;
+      }
+
+      if (!geaendert) continue;
       order.updatedBy = req.userId;
       await order.save();
       aktualisiert++;
