@@ -155,13 +155,22 @@ async function openDetail(orderId) {
 
 let currentDetail = null;
 
+// Während ein Istwert-Feld (Erstfreigabe oder laufende Maßprüfung) fokussiert
+// ist, nicht neu rendern - der 8-Sekunden-Poll würde sonst renderDetail() den
+// kompletten Auftragsdetail-Bereich neu aufbauen und dabei die gerade
+// eingetippte, noch nicht abgeschickte Eingabe löschen.
+function istEingabeAktiv() {
+    const el = document.activeElement;
+    return el?.tagName === 'INPUT' && (el.hasAttribute('data-pruefpunkt-id') || el.hasAttribute('data-massung-pruefpunkt'));
+}
+
 async function fetchDetail(orderId) {
     try {
         const res = await fetch(`${API_URL}/orders/${orderId}`, { headers: authHeaders() });
         if (res.status === 401) return handleAuthExpired();
         if (!res.ok) return;
         currentDetail = await res.json();
-        renderDetail();
+        if (!istEingabeAktiv()) renderDetail();
     } catch (err) { /* stiller Retry beim nächsten Poll */ }
 }
 
