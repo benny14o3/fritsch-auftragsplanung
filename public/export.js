@@ -21,9 +21,23 @@ function downloadBytes(bytes, filename, mimeType) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Rundet Fließkomma-Rauschen aus Sollwert +/- Abweichung weg (z.B. 35.900000000000006).
+function rundeToleranz(x) { return Math.round(x * 1e6) / 1e6; }
+
+// Zeigt die Toleranz wie auf der FSK-Karte als Abweichung vom Sollwert (z.B.
+// "± 0.3 mm" oder "+0.3 / -0.1 mm"), nicht als absolute Grenzen - genau so
+// werden Sollwert/Abweichung auch in der Artikelverwaltung eingegeben.
 function pruefpunktToleranzText(p) {
     if (p.toleranzMin == null && p.toleranzMax == null) return '–';
-    return `${p.toleranzMin ?? '–'} … ${p.toleranzMax ?? '–'}${p.einheit ? ' ' + p.einheit : ''}`;
+    const einheit = p.einheit ? ' ' + p.einheit : '';
+    if (p.sollwert == null) return `${p.toleranzMin ?? '–'} … ${p.toleranzMax ?? '–'}${einheit}`;
+    const abwUnten = p.toleranzMin != null ? rundeToleranz(p.sollwert - p.toleranzMin) : null;
+    const abwOben = p.toleranzMax != null ? rundeToleranz(p.toleranzMax - p.sollwert) : null;
+    if (abwUnten != null && abwOben != null) {
+        return abwUnten === abwOben ? `± ${abwOben}${einheit}` : `+${abwOben} / -${abwUnten}${einheit}`;
+    }
+    if (abwUnten != null) return `-${abwUnten}${einheit}`;
+    return `+${abwOben}${einheit}`;
 }
 
 // --- Artikelmappe (PDF: Zeichnung + Einstelldatenblatt + Produktionslenkungsplan) ---

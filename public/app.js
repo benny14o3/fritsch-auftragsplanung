@@ -1021,24 +1021,58 @@ function renderArticleDetailPlp() {
         bezTd.appendChild(bezInput);
         tr.appendChild(bezTd);
 
-        ['sollwert', 'toleranzMin', 'toleranzMax'].forEach(key => {
-            const td = document.createElement('td');
-            if (istMass) {
-                const input = document.createElement('input');
-                input.className = 'table-input';
-                input.type = 'number';
-                input.step = 'any';
-                input.value = row[key] ?? '';
-                input.addEventListener('input', () => {
-                    articleDetailPlpRows[idx][key] = input.value === '' ? undefined : Number(input.value);
-                });
-                td.appendChild(input);
-            } else {
-                td.textContent = '–';
-                td.style.color = '#cbd5e1';
-            }
-            tr.appendChild(td);
-        });
+        const sollwertTd = document.createElement('td');
+        const abwUntenTd = document.createElement('td');
+        const abwObenTd = document.createElement('td');
+        if (istMass) {
+            const sollwertInput = document.createElement('input');
+            sollwertInput.className = 'table-input';
+            sollwertInput.type = 'number';
+            sollwertInput.step = 'any';
+            sollwertInput.value = row.sollwert ?? '';
+
+            // Abweichung statt absoluter Grenzen eingeben (wie auf der FSK-Karte
+            // z.B. "175°C ± 5") - toleranzMin/toleranzMax werden daraus berechnet
+            // und wie bisher gespeichert. Absolute Grenzen direkt einzutragen hatte
+            // wiederholt zu falschen i.O./n.i.O.-Bewertungen geführt (± 0.3 wurde als
+            // Grenze 0.3...0.3 statt Sollwert ± 0.3 interpretiert).
+            const abwUntenInput = document.createElement('input');
+            abwUntenInput.className = 'table-input';
+            abwUntenInput.type = 'number';
+            abwUntenInput.step = 'any';
+            abwUntenInput.min = '0';
+            abwUntenInput.placeholder = 'z.B. 0.3';
+            abwUntenInput.value = (row.sollwert != null && row.toleranzMin != null) ? row.sollwert - row.toleranzMin : '';
+
+            const abwObenInput = document.createElement('input');
+            abwObenInput.className = 'table-input';
+            abwObenInput.type = 'number';
+            abwObenInput.step = 'any';
+            abwObenInput.min = '0';
+            abwObenInput.placeholder = 'z.B. 0.3';
+            abwObenInput.value = (row.sollwert != null && row.toleranzMax != null) ? row.toleranzMax - row.sollwert : '';
+
+            const aktualisiereToleranz = () => {
+                const sollwert = sollwertInput.value === '' ? undefined : Number(sollwertInput.value);
+                const abwUnten = abwUntenInput.value === '' ? undefined : Number(abwUntenInput.value);
+                const abwOben = abwObenInput.value === '' ? undefined : Number(abwObenInput.value);
+                articleDetailPlpRows[idx].sollwert = sollwert;
+                articleDetailPlpRows[idx].toleranzMin = (sollwert !== undefined && abwUnten !== undefined) ? sollwert - abwUnten : undefined;
+                articleDetailPlpRows[idx].toleranzMax = (sollwert !== undefined && abwOben !== undefined) ? sollwert + abwOben : undefined;
+            };
+            sollwertInput.addEventListener('input', aktualisiereToleranz);
+            abwUntenInput.addEventListener('input', aktualisiereToleranz);
+            abwObenInput.addEventListener('input', aktualisiereToleranz);
+
+            sollwertTd.appendChild(sollwertInput);
+            abwUntenTd.appendChild(abwUntenInput);
+            abwObenTd.appendChild(abwObenInput);
+        } else {
+            [sollwertTd, abwUntenTd, abwObenTd].forEach(td => { td.textContent = '–'; td.style.color = '#cbd5e1'; });
+        }
+        tr.appendChild(sollwertTd);
+        tr.appendChild(abwUntenTd);
+        tr.appendChild(abwObenTd);
 
         const einheitTd = document.createElement('td');
         if (istMass) {
