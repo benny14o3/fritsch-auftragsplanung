@@ -313,6 +313,114 @@ async function parseStueckliste(file) {
     return materialien.filter(m => m.material);
 }
 
+// Produktionslenkungsplan-Excel: eine Zeile pro Prüf-/Prozessmerkmal, nach
+// Artikelnummer gruppiert. Unbekannter Typ -> Zeile wird übersprungen statt
+// geraten, damit eine falsch geschriebene Spalte nicht z.B. eine Maßprüfung
+// stillschweigend als reinen Prozessschritt (ohne Erstfreigabe-Pflicht)
+// speichert.
+function parsePlpTyp(rohwert) {
+    const v = (rohwert ?? '').toString().toLowerCase()
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+        .replace(/[.\s/-]/g, '');
+    if (v.includes('massprue') || v.includes('mass')) return 'masspruefung';
+    if (v.includes('ionio') || v === 'io' || v.includes('sichtpruef')) return 'iopruefung';
+    if (v.includes('prozess')) return 'prozess';
+    return null;
+}
+
+// Toleranzen werden wie in der Artikelverwaltung als ±-Abweichung vom
+// Sollwert erwartet (nicht als absolute Grenzen - das hatte bei manueller
+// Eingabe schon zu falschen i.O./n.i.O.-Bewertungen geführt, siehe Artikel
+// 49309909), deshalb hier direkt in toleranzMin/toleranzMax umgerechnet.
+async function parsePlpExcel(file) {
+    const workbook = await readWorkbook(file);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    // Spaltennamen aus der echten Kopfzeile lesen, nicht aus den Keys der ersten
+    // Datenzeile (sheet_to_json lässt leere Zellen weg - bei einer
+    // Prozessschritt-Zeile ohne Sollwert/Toleranz/Einheit wären das sonst genau
+    // die Spalten, die eine Maßprüfung in einer späteren Zeile braucht).
+    const columns = (XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] || []).map(c => (c ?? '').toString());
+    const rows = XLSX.utils.sheet_to_json(sheet);
+
+    const materialCol = findColumn(columns, 'material', 'artikel');
+    const typCol = findColumn(columns, 'typ');
+    const bezCol = findColumn(columns, 'bezeichnung', 'merkmal');
+    const sollCol = findColumn(columns, 'sollwert', 'soll');
+    const abwUntenCol = findColumn(columns, 'abweichung unten', 'toleranz unten', 'untere toleranz', 'abw. unten', 'unten', 'minus');
+    const abwObenCol = findColumn(columns, 'abweichung oben', 'toleranz oben', 'obere toleranz', 'abw. oben', 'oben', 'plus');
+    const abwCol = findColumn(columns, 'toleranz', 'abweichung');
+    const einheitCol = findColumn(columns, 'einheit');
+    const mittelCol = findColumn(columns, 'prüfmittel', 'pruefmittel', 'messmittel');
+    const haeufigkeitCol = findColumn(columns, 'häufigkeit', 'haeufigkeit', 'frequenz');
+
+    const byMaterial = new Map();
+    const artikel = [];
+    let uebersprungen = 0;
+    const anzahlProTyp = { prozess: 0, masspruefung: 0, iopruefung: 0 };
+
+    rows.forEach(r => {
+        const material = (r[materialCol] ?? '').toString().trim();
+        const bezeichnung = (r[bezCol] ?? '').toString().trim();
+        if (!material || !bezeichnung) return;
+        const typ = parsePlpTyp(r[typCol]);
+        if (!typ) { uebersprungen++; return; }
+
+        const eintrag = { bezeichnung, typ };
+        if (typ === 'masspruefung') {
+            const sollwert = sollCol ? parseFloat(r[sollCol]) : NaN;
+            const abwUnten = abwUntenCol ? Math.abs(parseFloat(r[abwUntenCol])) : (abwCol ? Math.abs(parseFloat(r[abwCol])) : NaN);
+            const abwOben = abwObenCol ? Math.abs(parseFloat(r[abwObenCol])) : (abwCol ? Math.abs(parseFloat(r[abwCol])) : NaN);
+            if (!isNaN(sollwert)) {
+                eintrag.sollwert = sollwert;
+                if (!isNaN(abwUnten)) eintrag.toleranzMin = sollwert - abwUnten;
+                if (!isNaN(abwOben)) eintrag.toleranzMax = sollwert + abwOben;
+            }
+            if (einheitCol) eintrag.einheit = (r[einheitCol] ?? '').toString().trim();
+        }
+        if (typ === 'masspruefung' || typ === 'iopruefung') {
+            if (mittelCol) eintrag.pruefmittel = (r[mittelCol] ?? '').toString().trim();
+            if (haeufigkeitCol) eintrag.pruefhaeufigkeit = (r[haeufigkeitCol] ?? '').toString().trim();
+        }
+
+        let current = byMaterial.get(material);
+        if (!current) {
+            current = { material, plp: [] };
+            byMaterial.set(material, current);
+            artikel.push(current);
+        }
+        current.plp.push(eintrag);
+        anzahlProTyp[typ]++;
+    });
+
+    return { artikel, uebersprungen, anzahlProTyp };
+}
+
+document.getElementById('dbPlp')?.addEventListener('change', async (e) => {
+    const statusEl = document.getElementById('plpUploadStatus');
+    const file = e.target.files[0];
+    if (!file) return;
+    statusEl.textContent = 'Lade hoch...';
+    try {
+        const { artikel, uebersprungen, anzahlProTyp } = await parsePlpExcel(file);
+        if (artikel.length === 0) throw new Error('Keine gültigen Zeilen gefunden - Artikelnummer/Typ/Bezeichnung prüfen.');
+        const res = await fetch(`${API_URL}/artikelstamm/upload/plp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ artikel }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        artikelstamm = data;
+        renderDatabaseTable();
+        const gesamt = anzahlProTyp.prozess + anzahlProTyp.masspruefung + anzahlProTyp.iopruefung;
+        let text = `✅ ${gesamt} Prüfpunkte auf ${artikel.length} Artikeln gespeichert (${anzahlProTyp.prozess} Prozessschritte, ${anzahlProTyp.masspruefung} Maßprüfungen, ${anzahlProTyp.iopruefung} i.O./n.i.O.-Prüfungen)`;
+        if (uebersprungen > 0) text += ` - ${uebersprungen} Zeile${uebersprungen === 1 ? '' : 'n'} mit unbekanntem Typ übersprungen`;
+        statusEl.textContent = text;
+    } catch (err) {
+        statusEl.textContent = '❌ Fehler: ' + err.message;
+    }
+});
+
 document.getElementById('converterFile')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -581,6 +689,7 @@ async function loadArtikelstamm() {
         const elastomerCount = artikelstamm.artikel.filter(a => a.dbType === 'Elastomer').length;
         const ptfeCount = artikelstamm.artikel.filter(a => a.dbType === 'PTFE').length;
         const komponentenCount = artikelstamm.artikel.filter(a => a.komponenten?.length > 0).length;
+        const plpCount = artikelstamm.artikel.filter(a => a.plp?.length > 0).length;
         const zeit = artikelstamm.lastUpdated ? new Date(artikelstamm.lastUpdated).toLocaleString('de-DE') : '';
 
         const elastomerStatusEl = document.getElementById('elastomerStatus');
@@ -589,6 +698,8 @@ async function loadArtikelstamm() {
         if (ptfeStatusEl && ptfeCount > 0) ptfeStatusEl.textContent = `✅ ${ptfeCount} Artikel gespeichert (${zeit})`;
         const stuecklisteStatusEl = document.getElementById('stuecklisteStatus');
         if (stuecklisteStatusEl && komponentenCount > 0) stuecklisteStatusEl.textContent = `✅ ${komponentenCount} Artikel gespeichert (${zeit})`;
+        const plpStatusEl = document.getElementById('plpUploadStatus');
+        if (plpStatusEl && plpCount > 0) plpStatusEl.textContent = `✅ ${plpCount} Artikel mit Prüfplan (${zeit})`;
 
         renderDatabaseTable();
     } catch (err) {

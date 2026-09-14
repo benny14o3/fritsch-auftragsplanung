@@ -24,10 +24,12 @@ router.get('/', authMiddleware, async (req, res) => {
 // eigene Datenbank pro Typ. Artikel, die aus dem Upload verschwinden, werden
 // NICHT komplett gelöscht (sie könnten noch Komponenten aus der Stückliste
 // tragen) - nur ihre Prozessdaten werden zurückgesetzt.
-router.post('/upload/:type', authMiddleware, adminMiddleware, async (req, res) => {
+// :type auf Elastomer/PTFE eingeschränkt (wie unten bei :feld) - sonst würde
+// diese Route wegen ihrer Position vor den spezifischeren Upload-Routen auch
+// /upload/stueckliste und /upload/plp abfangen, statt sie durchzureichen.
+router.post('/upload/:type(Elastomer|PTFE)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { type } = req.params;
-    if (!['Elastomer', 'PTFE'].includes(type)) return res.status(400).json({ error: 'Ungültiger Typ' });
     const { articles } = req.body;
     const doc = await getOrCreateDoc();
 
@@ -86,6 +88,34 @@ router.post('/upload/stueckliste', authMiddleware, adminMiddleware, async (req, 
       }
       entry.bezeichnung = row.bezeichnung || '';
       entry.komponenten = row.komponenten || [];
+    });
+
+    doc.updatedBy = req.userId;
+    doc.lastUpdated = new Date();
+    await doc.save();
+    res.json(doc);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Produktionslenkungsplan-Excel hochladen: ersetzt je Artikel die komplette
+// Prüfpunkte-Liste - wie ein manuelles Bearbeiten+Speichern im Artikeldetail
+// (das ebenfalls entry.plp komplett ersetzt), nur für viele Artikel auf einmal.
+// Bereits bestehende pruefpunktId-Referenzen auf Aufträgen (Laufzettel/
+// Massungen/Erstfreigabe) sind Schnappschüsse und bleiben unabhängig davon
+// lesbar, zeigen nach einem Re-Upload aber auf einen nicht mehr im Stamm
+// vorhandenen Punkt - genau wie bei einer manuellen PLP-Bearbeitung.
+router.post('/upload/plp', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { artikel: eintraege } = req.body;
+    const doc = await getOrCreateDoc();
+
+    eintraege.forEach(row => {
+      let entry = doc.artikel.find(a => a.material === row.material);
+      if (!entry) {
+        doc.artikel.push({ material: row.material, dbType: null, maschine: '', kavitaet: 0, rundenProSchicht: 0, zeitProHundert: 0, komponenten: [] });
+        entry = doc.artikel[doc.artikel.length - 1];
+      }
+      entry.plp = row.plp || [];
     });
 
     doc.updatedBy = req.userId;

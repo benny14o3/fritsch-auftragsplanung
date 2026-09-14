@@ -607,6 +607,17 @@
                 <div id="stuecklisteStatus" style="color: #64748b; margin-top: 12px;"></div>
             </div>
             <div class="card">
+                <h3>Produktionslenkungsplan (Prüf-/Prozessmerkmale)</h3>
+                <p style="color: #64748b; margin-bottom: 8px; font-size: 13px;">Ersetzt je Artikel die komplette Prüfpunkte-Liste (Erstfreigabe/Fehlersammelkarte/Prozessbegleitschein) - eine Zeile pro Prüf- oder Prozessmerkmal.</p>
+                <p style="color: #94a3b8; margin-bottom: 16px; font-size: 12px;">Spalten: <b>Artikelnummer</b>, <b>Typ</b> (Prozessschritt / Maßprüfung / i.O.-n.i.O.-Prüfung), <b>Bezeichnung</b>, Sollwert, Abweichung unten, Abweichung oben, Einheit, Prüfmittel, Prüfhäufigkeit. Abweichung immer als positiver Wert (wie auf der FSK-Karte, z.B. "175°C ± 5") - Sollwert/Abweichung/Einheit nur bei Maßprüfung nötig.</p>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Prüfplan-Excel hochladen</div>
+                    <input type="file" id="dbPlp" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                </label>
+                <div id="plpUploadStatus" style="color: #64748b; margin-top: 12px;"></div>
+            </div>
+            <div class="card">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
                     <h3>Artikelstamm verwalten</h3>
                     <input type="text" id="databaseFilter" placeholder="🔍 Artikel suchen..." style="max-width: 240px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">
