@@ -75,7 +75,9 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 document.getElementById('refreshBtn').addEventListener('click', () => {
-    if (activeOrderId) fetchDetail(activeOrderId); else fetchBoard();
+    if (activeOrderId) fetchDetail(activeOrderId);
+    else if (!document.getElementById('produktionView').classList.contains('hidden')) fetchProduktion();
+    else fetchBoard();
 });
 
 document.getElementById('backBtn').addEventListener('click', () => {
@@ -134,6 +136,151 @@ function renderBoard() {
 function stopPolling() {
     clearInterval(boardPollTimer);
     stopDetailPolling();
+    stopProduktionPolling();
+}
+
+// --- Aktuelle Produktion (nur Formgebung) ---
+// Werker wählen den laufenden Auftrag, tragen gefahrene Runden ein - die
+// Stückzahl wird serverseitig aus Runden x Kavität berechnet, nicht hier.
+
+let produktionOrders = [];
+let produktionPollTimer = null;
+let produktionExpandedId = null;
+
+function stopProduktionPolling() {
+    clearInterval(produktionPollTimer);
+    produktionPollTimer = null;
+}
+
+document.getElementById('produktionBtn').addEventListener('click', openProduktion);
+document.getElementById('produktionBackBtn').addEventListener('click', closeProduktion);
+
+async function openProduktion() {
+    activeOrderId = null;
+    stopDetailPolling();
+    document.getElementById('boardView').classList.add('hidden');
+    document.getElementById('detailView').classList.add('hidden');
+    document.getElementById('produktionView').classList.remove('hidden');
+    document.getElementById('topbarTitle').textContent = 'Produktion';
+    produktionExpandedId = null;
+    await fetchProduktion();
+    clearInterval(produktionPollTimer);
+    produktionPollTimer = setInterval(fetchProduktion, 8000);
+}
+
+function closeProduktion() {
+    stopProduktionPolling();
+    document.getElementById('produktionView').classList.add('hidden');
+    document.getElementById('boardView').classList.remove('hidden');
+    document.getElementById('topbarTitle').textContent = 'Shopfloor';
+}
+
+// Während ein Runden-Feld fokussiert ist, nicht neu rendern - sonst würde der
+// 8-Sekunden-Poll die gerade eingetippte, noch nicht abgeschickte Eingabe
+// löschen (gleicher Bug wie schon bei den Istwert-Feldern behoben).
+function istRundenEingabeAktiv() {
+    return document.activeElement?.classList.contains('runden-input');
+}
+
+async function fetchProduktion() {
+    try {
+        const res = await fetch(`${API_URL}/orders/aktuell`, { headers: authHeaders() });
+        if (res.status === 401) return handleAuthExpired();
+        if (!res.ok) return;
+        produktionOrders = await res.json();
+        if (!istRundenEingabeAktiv()) renderProduktion();
+    } catch (err) { /* stiller Retry beim nächsten Poll */ }
+}
+
+function renderProduktion() {
+    const list = document.getElementById('produktionList');
+    if (produktionOrders.length === 0) {
+        list.innerHTML = '<div class="empty-note">Aktuell ist kein Formgebung-Auftrag terminiert.</div>';
+        return;
+    }
+    list.innerHTML = '';
+    produktionOrders.forEach(order => {
+        const stueckzahlBisher = (order.produktion || []).reduce((sum, p) => sum + p.stueckzahl, 0);
+        const soll = order.gesamtmenge ?? order.menge ?? 0;
+        const pct = soll > 0 ? Math.min(100, Math.round((stueckzahlBisher / soll) * 100)) : 0;
+        const expanded = produktionExpandedId === order._id;
+
+        const card = document.createElement('div');
+        card.className = 'order-card produktion-card';
+        card.innerHTML = `
+            <div class="row1">
+                <span class="artikel">${order.artikelnummer || '–'}</span>
+                <span class="auftrag">${order.auftragsnummer || ''}</span>
+            </div>
+            <div class="desc">${order.beschreibung || ''}</div>
+            <div class="progress-row">
+                <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+                <div class="progress-label">${stueckzahlBisher} / ${soll} Stk</div>
+            </div>
+        `;
+        card.addEventListener('click', () => {
+            produktionExpandedId = expanded ? null : order._id;
+            renderProduktion();
+        });
+
+        if (expanded) {
+            const log = (order.produktion || []).slice().reverse();
+            const box = document.createElement('div');
+            box.className = 'runden-eingabe';
+            box.innerHTML = `
+                <div class="pruefpunkt-eingabe">
+                    <input type="number" step="1" min="1" inputmode="numeric" class="runden-input" placeholder="Gefahrene Runden">
+                    <button type="button" class="runden-submit">Erfassen</button>
+                </div>
+                <div class="runden-hinweis">Kavität ${order.kavitaet || '–'} · Stückzahl wird automatisch berechnet</div>
+                <div class="massung-log" style="margin-top:8px;">
+                    ${log.map(p => `
+                        <div class="massung-log-row">
+                            <span>${p.runden} Runden = ${p.stueckzahl} Stk · ${p.kuerzel} · ${new Date(p.zeitpunkt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</span>
+                            <button type="button" class="runden-remove" data-entry-id="${p._id}">✕</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            box.addEventListener('click', (e) => e.stopPropagation());
+
+            const input = box.querySelector('.runden-input');
+            box.querySelector('.runden-submit').addEventListener('click', () => {
+                const runden = Number(input.value);
+                if (!runden || runden <= 0) return;
+                meldeRunden(order._id, runden);
+            });
+            box.querySelectorAll('.runden-remove').forEach(btn => {
+                btn.addEventListener('click', () => entferneRundenMeldung(order._id, btn.dataset.entryId));
+            });
+
+            card.appendChild(box);
+        }
+
+        list.appendChild(card);
+    });
+}
+
+async function meldeRunden(orderId, runden) {
+    try {
+        const res = await fetch(`${API_URL}/orders/${orderId}/produktion`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({ runden }),
+        });
+        if (!res.ok) return;
+        await fetchProduktion();
+    } catch (err) { /* ignore */ }
+}
+
+async function entferneRundenMeldung(orderId, entryId) {
+    try {
+        await fetch(`${API_URL}/orders/${orderId}/produktion/${entryId}`, {
+            method: 'DELETE',
+            headers: authHeaders(),
+        });
+        await fetchProduktion();
+    } catch (err) { /* ignore */ }
 }
 
 function stopDetailPolling() {
@@ -641,7 +788,9 @@ function init() {
     document.getElementById('userGreeting').textContent = currentUser ? `${currentUser.name} (${currentUser.kuerzel})` : '';
     fetchBoard();
     clearInterval(boardPollTimer);
-    boardPollTimer = setInterval(() => { if (!activeOrderId) fetchBoard(); }, 8000);
+    boardPollTimer = setInterval(() => {
+        if (!activeOrderId && document.getElementById('produktionView').classList.contains('hidden')) fetchBoard();
+    }, 8000);
 }
 
 init();

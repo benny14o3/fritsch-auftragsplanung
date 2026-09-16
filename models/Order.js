@@ -31,6 +31,18 @@ const fehlerEintragSchema = new mongoose.Schema({
   zeitpunkt: { type: Date, default: Date.now },
 });
 
+// Eine Runden-Meldung aus der laufenden Produktion (nur Formgebung) - Log
+// statt Einzelwert, damit mehrere Meldungen je Schicht möglich sind (z.B.
+// Schichtwechsel, mehrere Werker an derselben Maschine). Die Stückzahl wird
+// serverseitig aus Runden x Kavität (Order.kavitaet, zum Zeitpunkt der
+// Meldung) berechnet, nicht vom Werker eingegeben.
+const produktionsEintragSchema = new mongoose.Schema({
+  runden: { type: Number, required: true },
+  stueckzahl: { type: Number, required: true },
+  kuerzel: { type: String, required: true },
+  zeitpunkt: { type: Date, default: Date.now },
+});
+
 // Prozessbegleitschein: ein Eintrag je Prozessschritt-Prüfpunkt aus dem
 // Produktionslenkungsplan des Artikels (typ: 'prozess'), am Shopfloor-Bildschirm
 // abgehakt statt auf Papier mitgeführt. pruefpunktId verweist auf den Punkt im
@@ -140,6 +152,9 @@ const orderSchema = new mongoose.Schema({
   // Freies Notizfeld je Auftrag, z.B. für Absprachen oder Besonderheiten.
   kommentar: { type: String, default: '' },
   fehlersammelkarte: [fehlerEintragSchema],
+  // Runden-Meldungen aus der laufenden Produktion (nur Formgebung) - siehe
+  // GET /shopfloor/orders/aktuell und POST /shopfloor/orders/:orderId/produktion.
+  produktion: [produktionsEintragSchema],
   laufzettel: [laufzettelEintragSchema],
   massungen: [massungSchema],
   erstfreigabe: { type: erstfreigabeSchema, default: () => ({ erteilt: false, messungen: [] }) },

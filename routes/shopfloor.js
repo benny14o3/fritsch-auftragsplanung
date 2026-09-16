@@ -111,6 +111,31 @@ router.get('/artikel/:material/auftraege', shopfloorAuthMiddleware, async (req, 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Aktuell laufende Produktion (nur Formgebung/Elastomer - Runden/Kavität
+// ergeben nur beim Spritzguss Sinn, CNC läuft zeitbasiert). "Aktuell" heißt:
+// heute liegt zwischen Start- und Enddatum des Auftrags. Muss vor
+// GET /orders/:orderId stehen, sonst würde diese Route "aktuell" als
+// :orderId interpretieren und versuchen, danach zu suchen.
+router.get('/orders/aktuell', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const heuteStart = new Date();
+    heuteStart.setHours(0, 0, 0, 0);
+    const heuteEnde = new Date();
+    heuteEnde.setHours(23, 59, 59, 999);
+    const orders = await Order.find({
+      dbType: 'Elastomer',
+      phase: 'produktion',
+      status: 'geplant',
+      maschineId: { $ne: null },
+      startDatum: { $ne: null, $lte: heuteEnde },
+      endDatum: { $ne: null, $gte: heuteStart },
+    })
+      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge maschineId maschineId2 kavitaet startDatum endDatum produktion')
+      .sort({ maschineId: 1, startDatum: 1 });
+    res.json(orders);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
   try {
     const order = await Order.findById(req.params.orderId);
@@ -290,6 +315,33 @@ router.delete('/orders/:orderId/massung/:entryId', shopfloorAuthMiddleware, asyn
     order.massungen = order.massungen.filter(m => String(m._id) !== req.params.entryId);
     await order.save();
     res.json(order.massungen);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Runden-Meldung: Stückzahl wird serverseitig aus Runden x Kavität berechnet,
+// nicht vom Werker eingegeben - Order.kavitaet ist beim Import/Anlegen aus dem
+// Artikelstamm kopiert (bzw. per "Artikeldaten aktualisieren" nachgezogen).
+router.post('/orders/:orderId/produktion', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const runden = Number(req.body.runden);
+    if (!runden || runden <= 0) return res.status(400).json({ error: 'Runden erforderlich' });
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const stueckzahl = runden * (order.kavitaet || 0);
+    order.produktion.push({ runden, stueckzahl, kuerzel: req.shopfloorKuerzel, zeitpunkt: new Date() });
+    await order.save();
+    res.status(201).json(order.produktion);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Fehlerhafte Runden-Meldung zurücknehmen.
+router.delete('/orders/:orderId/produktion/:entryId', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    order.produktion = order.produktion.filter(p => String(p._id) !== req.params.entryId);
+    await order.save();
+    res.json(order.produktion);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

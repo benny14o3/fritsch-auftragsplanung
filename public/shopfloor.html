@@ -116,6 +116,10 @@
         .io-choice-btn.nok.selected { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
         .erstfreigabe-submit { width: 100%; margin-top: 14px; }
         .erstfreigabe-submit:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+        .order-card.produktion-card { cursor: pointer; }
+        .runden-eingabe { border-top: 1px solid #f1f5f9; padding-top: 12px; margin-top: 12px; }
+        .runden-hinweis { font-size: 11px; color: #94a3b8; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -144,6 +148,7 @@
             <div class="sub" id="userGreeting"></div>
         </div>
         <div class="topbar-actions">
+            <button class="btn btn-secondary" id="produktionBtn">🏃 Produktion</button>
             <button class="btn btn-secondary" id="refreshBtn">⟳</button>
             <button class="btn btn-danger" id="logoutBtn">Abmelden</button>
         </div>
@@ -155,6 +160,17 @@
                 <div class="tab" data-type="PTFE">CNC</div>
             </div>
             <div id="orderList" class="order-list"></div>
+        </div>
+
+        <div id="produktionView" class="hidden">
+            <div class="detail-header">
+                <button class="back-btn" id="produktionBackBtn">← Zurück</button>
+                <div>
+                    <div class="detail-title">Aktuelle Produktion</div>
+                    <div class="detail-sub">Formgebung · heute terminierte Aufträge</div>
+                </div>
+            </div>
+            <div id="produktionList" class="order-list"></div>
         </div>
 
         <div id="detailView" class="hidden">
