@@ -22,7 +22,7 @@ async function mitDateiMetadaten(artikelOderListe) {
   const dateien = await ArtikelDatei.find({ material: { $in: materialien } }).select('-data');
   const byKey = new Map(dateien.map(d => [`${d.material}|${d.feld}`, d]));
   liste.forEach(a => {
-    ['zeichnung', 'einstelldatenblatt'].forEach(feld => {
+    ['zeichnung', 'einstelldatenblatt', 'qpa'].forEach(feld => {
       const d = byKey.get(`${a.material}|${feld}`);
       a[feld] = d ? { filename: d.filename, mimeType: d.mimeType, uploadedAt: d.uploadedAt } : null;
     });
@@ -217,7 +217,7 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
 // Artikelstamm-Dokument - siehe Kommentar dort. Zeichnung und
 // Einstelldatenblatt sind strukturell dieselbe Ablage, deshalb eine gemeinsame
 // Route statt zweier fast identischer Handler.
-router.put('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, adminMiddleware, async (req, res) => {
+router.put('/materialien/:material/:feld(zeichnung|einstelldatenblatt|qpa)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { material, feld } = req.params;
     const doc = await getOrCreateDoc();
@@ -238,7 +238,7 @@ router.put('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMid
 
 // Datei inkl. Inhalt - nur bei Bedarf (Vorschau/Artikelmappe), nicht bei jedem
 // Laden des Artikelstamms.
-router.get('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, async (req, res) => {
+router.get('/materialien/:material/:feld(zeichnung|einstelldatenblatt|qpa)', authMiddleware, async (req, res) => {
   try {
     const { material, feld } = req.params;
     const datei = await ArtikelDatei.findOne({ material, feld });
@@ -247,7 +247,7 @@ router.get('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMid
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, adminMiddleware, async (req, res) => {
+router.delete('/materialien/:material/:feld(zeichnung|einstelldatenblatt|qpa)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { material, feld } = req.params;
     const doc = await getOrCreateDoc();

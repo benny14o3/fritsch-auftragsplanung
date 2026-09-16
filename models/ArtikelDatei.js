@@ -12,7 +12,7 @@ const mongoose = require('mongoose');
 // hinterlegt ist.
 const artikelDateiSchema = new mongoose.Schema({
   material: { type: String, required: true },
-  feld: { type: String, enum: ['zeichnung', 'einstelldatenblatt'], required: true },
+  feld: { type: String, enum: ['zeichnung', 'einstelldatenblatt', 'qpa'], required: true },
   filename: String,
   mimeType: String,
   data: String, // base64

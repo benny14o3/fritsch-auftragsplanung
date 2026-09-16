@@ -593,6 +593,12 @@ initDateiBulkUpload('einstelldatenblatt', 'Einstelldatenblatt', 'Einstelldatenbl
     datalist: 'einstelldatenblattBulkArtikelListe', uploadBtn: 'einstelldatenblattBulkUploadBtn', status: 'einstelldatenblattBulkStatus',
 }, a => a.dbType === 'Elastomer');
 
+// Qualitätsprüfanweisung gilt für Formgebung wie CNC - daher kein Filter.
+initDateiBulkUpload('qpa', 'QPA', 'QPA', {
+    filesInput: 'qpaBulkFiles', preview: 'qpaBulkPreview', table: 'qpaBulkTable',
+    datalist: 'qpaBulkArtikelListe', uploadBtn: 'qpaBulkUploadBtn', status: 'qpaBulkStatus',
+});
+
 document.getElementById('converterFile')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -934,7 +940,7 @@ function renderDatabaseTable() {
             const detailBtn = document.createElement('button');
             detailBtn.className = 'table-actions';
             detailBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
-            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
+            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 🧪 ${article.qpa ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
             detailBtn.title = 'Zeichnung & PLP';
             detailBtn.addEventListener('click', () => openArticleDetailModal(article.material));
             shopfloorTd.appendChild(detailBtn);
@@ -1015,7 +1021,7 @@ function renderDatabaseTable() {
             const shopfloorEditTd = document.createElement('td');
             const detailEditBtn = document.createElement('button');
             detailEditBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
-            detailEditBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
+            detailEditBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 🧪 ${article.qpa ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
             detailEditBtn.title = 'Zeichnung & PLP';
             detailEditBtn.addEventListener('click', () => openArticleDetailModal(article.material));
             shopfloorEditTd.appendChild(detailEditBtn);
@@ -1175,9 +1181,11 @@ function openArticleDetailModal(material) {
     // Einstelldatenblatt (Spritzguss-Einstellparameter) ergibt nur bei Formgebung Sinn.
     document.getElementById('articleDetailEinstelldatenblattSection').classList.toggle('hidden', article.dbType !== 'Elastomer');
     renderArticleDetailDatei('einstelldatenblatt', article.einstelldatenblatt);
+    renderArticleDetailDatei('qpa', article.qpa);
     renderArticleDetailPlp();
     document.getElementById('articleDetailZeichnungFile').value = '';
     document.getElementById('articleDetailEinstelldatenblattFile').value = '';
+    document.getElementById('articleDetailQpaFile').value = '';
     document.getElementById('articleDetailModal').classList.remove('hidden');
 }
 
@@ -1186,7 +1194,7 @@ function closeArticleDetailModal() {
     articleDetailMaterial = null;
 }
 
-const ARTIKEL_DATEI_LABEL = { zeichnung: 'Zeichnung', einstelldatenblatt: 'Einstelldatenblatt' };
+const ARTIKEL_DATEI_LABEL = { zeichnung: 'Zeichnung', einstelldatenblatt: 'Einstelldatenblatt', qpa: 'QPA' };
 
 // Base64 -> Blob statt data:-URI: Safari bricht bei größeren Dateien (z.B.
 // gescannte Zeichnungen als PDF) das Öffnen einer data:-URI in einem neuen Tab
@@ -1567,6 +1575,7 @@ async function uploadArticleDetailDatei(feld, file) {
 
 document.getElementById('articleDetailZeichnungFile')?.addEventListener('change', (e) => uploadArticleDetailDatei('zeichnung', e.target.files[0]));
 document.getElementById('articleDetailEinstelldatenblattFile')?.addEventListener('change', (e) => uploadArticleDetailDatei('einstelldatenblatt', e.target.files[0]));
+document.getElementById('articleDetailQpaFile')?.addEventListener('change', (e) => uploadArticleDetailDatei('qpa', e.target.files[0]));
 
 document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async () => {
     if (!articleDetailMaterial) return;

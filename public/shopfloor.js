@@ -322,7 +322,7 @@ async function fetchDetail(orderId) {
 }
 
 function renderDetail() {
-    const { order, zeichnung, einstelldatenblatt, plp, erstfreigabeErforderlich, erstfreigabeOffen } = currentDetail;
+    const { order, zeichnung, einstelldatenblatt, qpa, plp, erstfreigabeErforderlich, erstfreigabeOffen } = currentDetail;
     document.getElementById('detailTitle').textContent = `${order.artikelnummer || '–'} · ${order.auftragsnummer || ''}`;
     document.getElementById('detailSub').textContent = `${order.beschreibung || ''} · Menge ${order.menge || '–'}`;
 
@@ -333,6 +333,7 @@ function renderDetail() {
     if (order.dbType === 'Elastomer') {
         renderDateiPreview('einstelldatenblattBox', order.artikelnummer, 'einstelldatenblatt', einstelldatenblatt, 'Kein Einstelldatenblatt hinterlegt.');
     }
+    renderDateiPreview('qpaBox', order.artikelnummer, 'qpa', qpa, 'Keine QPA hinterlegt.');
     renderKomponenten(order);
     renderPlp(plp);
     renderErstfreigabe(order, plp, erstfreigabeErforderlich, erstfreigabeOffen);
@@ -755,13 +756,13 @@ async function removeFehler(entryId) {
 
 document.getElementById('artikelmappeBtn')?.addEventListener('click', async () => {
     const note = document.getElementById('exportNote');
-    const { order, zeichnung, einstelldatenblatt, plp } = currentDetail;
+    const { order, zeichnung, einstelldatenblatt, qpa, plp } = currentDetail;
     note.style.color = '#64748b';
     note.textContent = 'Erzeuge PDF...';
     try {
         await exportArtikelmappe({
             material: order.artikelnummer, bezeichnung: order.beschreibung, dbType: order.dbType,
-            maschine: '', kavitaet: null, zeichnung, einstelldatenblatt, plp,
+            maschine: '', kavitaet: null, zeichnung, einstelldatenblatt, qpa, plp,
         }, async (feld) => {
             const res = await fetch(`${API_URL}/artikel/${encodeURIComponent(order.artikelnummer)}/datei/${feld}`, { headers: authHeaders() });
             if (!res.ok) throw new Error();

@@ -104,7 +104,7 @@ router.get('/orders', shopfloorAuthMiddleware, async (req, res) => {
 // Zeichnung/Einstelldatenblatt eines Artikels inkl. Inhalt - bewusst eine
 // eigene Route, damit die alle 8 Sekunden gepollte Detail-Route die PDFs nicht
 // jedes Mal mitschickt.
-router.get('/artikel/:material/datei/:feld(zeichnung|einstelldatenblatt)', shopfloorAuthMiddleware, async (req, res) => {
+router.get('/artikel/:material/datei/:feld(zeichnung|einstelldatenblatt|qpa)', shopfloorAuthMiddleware, async (req, res) => {
   try {
     const datei = await ArtikelDatei.findOne({ material: req.params.material, feld: req.params.feld });
     if (!datei) return res.status(404).json({ error: 'Keine Datei hinterlegt' });
@@ -169,6 +169,7 @@ router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
       order,
       zeichnung: dateiMeta('zeichnung'),
       einstelldatenblatt: dateiMeta('einstelldatenblatt'),
+      qpa: dateiMeta('qpa'),
       plp: artikel?.plp || [],
       erstfreigabeErforderlich: istErstfreigabeErforderlich(artikel),
       erstfreigabeOffen: istErstfreigabeOffen(order, artikel),

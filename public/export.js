@@ -181,12 +181,15 @@ async function exportArtikelmappe(article, ladeDatei) {
         if (!article[feld]) return null;
         try { return await ladeDatei(feld); } catch (err) { return null; }
     };
-    const [zeichnung, einstelldatenblatt] = [await hole('zeichnung'), await hole('einstelldatenblatt')];
+    const zeichnung = await hole('zeichnung');
+    const einstelldatenblatt = await hole('einstelldatenblatt');
+    const qpa = await hole('qpa');
 
     await pdfCoverSeite(pdfDoc, font, fontBold, article);
     pdfPlpTabelle(pdfDoc, font, fontBold, article.plp || []);
     await pdfDateiSeite(pdfDoc, font, fontBold, 'Zeichnung', zeichnung);
     await pdfDateiSeite(pdfDoc, font, fontBold, 'Einstelldatenblatt', einstelldatenblatt);
+    await pdfDateiSeite(pdfDoc, font, fontBold, 'Qualitätsprüfanweisung (QPA)', qpa);
 
     const bytes = await pdfDoc.save();
     downloadBytes(bytes, `Artikelmappe-${article.material}.pdf`, 'application/pdf');
