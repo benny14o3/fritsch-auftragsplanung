@@ -169,15 +169,24 @@ async function pdfDateiSeite(pdfDoc, font, fontBold, titel, datei) {
     });
 }
 
-async function exportArtikelmappe(article) {
+// article trägt nur noch die Metadaten der Dateien (siehe models/ArtikelDatei.js);
+// den Inhalt liefert ladeDatei(feld) - Büro und Shopfloor haben dafür eigene,
+// jeweils passend authentifizierte Routen.
+async function exportArtikelmappe(article, ladeDatei) {
     const pdfDoc = await PDFLib.PDFDocument.create();
     const font = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
 
+    const hole = async (feld) => {
+        if (!article[feld]) return null;
+        try { return await ladeDatei(feld); } catch (err) { return null; }
+    };
+    const [zeichnung, einstelldatenblatt] = [await hole('zeichnung'), await hole('einstelldatenblatt')];
+
     await pdfCoverSeite(pdfDoc, font, fontBold, article);
     pdfPlpTabelle(pdfDoc, font, fontBold, article.plp || []);
-    await pdfDateiSeite(pdfDoc, font, fontBold, 'Zeichnung', article.zeichnung);
-    await pdfDateiSeite(pdfDoc, font, fontBold, 'Einstelldatenblatt', article.einstelldatenblatt);
+    await pdfDateiSeite(pdfDoc, font, fontBold, 'Zeichnung', zeichnung);
+    await pdfDateiSeite(pdfDoc, font, fontBold, 'Einstelldatenblatt', einstelldatenblatt);
 
     const bytes = await pdfDoc.save();
     downloadBytes(bytes, `Artikelmappe-${article.material}.pdf`, 'application/pdf');

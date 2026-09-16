@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const Order = require('../models/Order');
 const Artikelstamm = require('../models/Artikelstamm');
+const ArtikelDatei = require('../models/ArtikelDatei');
 const ShopfloorUser = require('../models/ShopfloorUser');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
@@ -100,6 +101,17 @@ router.get('/orders', shopfloorAuthMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Zeichnung/Einstelldatenblatt eines Artikels inkl. Inhalt - bewusst eine
+// eigene Route, damit die alle 8 Sekunden gepollte Detail-Route die PDFs nicht
+// jedes Mal mitschickt.
+router.get('/artikel/:material/datei/:feld(zeichnung|einstelldatenblatt)', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const datei = await ArtikelDatei.findOne({ material: req.params.material, feld: req.params.feld });
+    if (!datei) return res.status(404).json({ error: 'Keine Datei hinterlegt' });
+    res.json({ filename: datei.filename, mimeType: datei.mimeType, data: datei.data, uploadedAt: datei.uploadedAt });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Alle Aufträge eines Artikels über alle Phasen hinweg - für den FSK-Historie-
 // Export direkt am Shopfloor-Bildschirm (nicht nur die aktuell laufenden).
 router.get('/artikel/:material/auftraege', shopfloorAuthMiddleware, async (req, res) => {
@@ -144,10 +156,19 @@ router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
     ensureLaufzettel(order, artikel);
     if (order.isModified()) await order.save();
 
+    // Nur die Metadaten der Dateien - diese Route wird alle 8 Sekunden
+    // gepollt, die PDFs (~400 KB je Datei) holt der Shopfloor einmalig über
+    // die Datei-Route und hält sie, solange uploadedAt sich nicht ändert.
+    const dateien = artikel ? await ArtikelDatei.find({ material: artikel.material }).select('-data') : [];
+    const dateiMeta = feld => {
+      const d = dateien.find(x => x.feld === feld);
+      return d ? { filename: d.filename, mimeType: d.mimeType, uploadedAt: d.uploadedAt } : null;
+    };
+
     res.json({
       order,
-      zeichnung: artikel?.zeichnung || null,
-      einstelldatenblatt: artikel?.einstelldatenblatt || null,
+      zeichnung: dateiMeta('zeichnung'),
+      einstelldatenblatt: dateiMeta('einstelldatenblatt'),
       plp: artikel?.plp || [],
       erstfreigabeErforderlich: istErstfreigabeErforderlich(artikel),
       erstfreigabeOffen: istErstfreigabeOffen(order, artikel),

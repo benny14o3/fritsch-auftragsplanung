@@ -326,12 +326,12 @@ function renderDetail() {
     document.getElementById('detailTitle').textContent = `${order.artikelnummer || '–'} · ${order.auftragsnummer || ''}`;
     document.getElementById('detailSub').textContent = `${order.beschreibung || ''} · Menge ${order.menge || '–'}`;
 
-    renderDateiPreview('zeichnungBox', zeichnung, 'Keine Zeichnung hinterlegt.');
+    renderDateiPreview('zeichnungBox', order.artikelnummer, 'zeichnung', zeichnung, 'Keine Zeichnung hinterlegt.');
     // Einstelldatenblatt gibt es nur für Formgebung (Elastomer) - Karte bei CNC ausblenden.
     const einstelldatenblattCard = document.getElementById('einstelldatenblattCard');
     einstelldatenblattCard.classList.toggle('hidden', order.dbType !== 'Elastomer');
     if (order.dbType === 'Elastomer') {
-        renderDateiPreview('einstelldatenblattBox', einstelldatenblatt, 'Kein Einstelldatenblatt hinterlegt.');
+        renderDateiPreview('einstelldatenblattBox', order.artikelnummer, 'einstelldatenblatt', einstelldatenblatt, 'Kein Einstelldatenblatt hinterlegt.');
     }
     renderKomponenten(order);
     renderPlp(plp);
@@ -376,28 +376,45 @@ function base64ToObjectUrl(base64, mimeType) {
     return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
-// Eine Object-URL je Box merken und vor dem nächsten Rendern freigeben - sonst
-// würde bei jedem Polling-Refresh (alle 8s) eine neue URL erzeugt, ohne die
-// alte je freizugeben.
+// Eine Object-URL je Box merken, zusammen mit dem Stand (material|feld|
+// uploadedAt), aus dem sie erzeugt wurde. Die Detailansicht rendert alle 8
+// Sekunden neu - ohne diesen Merker würde jedes Mal das PDF (~400 KB) erneut
+// geladen und eine neue URL erzeugt.
 const aktiveObjectUrls = {};
 
-function renderDateiPreview(boxId, datei, leerText) {
+// datei enthält nur Metadaten (siehe GET /shopfloor/orders/:orderId), der
+// Inhalt kommt über die eigene Datei-Route - einmal je Stand.
+async function renderDateiPreview(boxId, material, feld, datei, leerText) {
     const box = document.getElementById(boxId);
-    if (aktiveObjectUrls[boxId]) {
-        URL.revokeObjectURL(aktiveObjectUrls[boxId]);
-        delete aktiveObjectUrls[boxId];
-    }
-    if (!datei || !datei.data) {
+    const stand = datei ? `${material}|${feld}|${datei.uploadedAt}` : null;
+    const bekannt = aktiveObjectUrls[boxId];
+
+    if (!datei) {
+        if (bekannt) { URL.revokeObjectURL(bekannt.url); delete aktiveObjectUrls[boxId]; }
         box.innerHTML = `<div class="no-doc">${leerText}</div>`;
         return;
     }
-    const url = base64ToObjectUrl(datei.data, datei.mimeType);
-    aktiveObjectUrls[boxId] = url;
-    const isImage = datei.mimeType.startsWith('image/');
+    if (bekannt && bekannt.stand === stand) return; // unverändert, nichts neu laden
+
+    if (bekannt) { URL.revokeObjectURL(bekannt.url); delete aktiveObjectUrls[boxId]; }
+    box.innerHTML = `<div class="no-doc">${datei.filename} wird geladen…</div>`;
+    let voll;
+    try {
+        const res = await fetch(`${API_URL}/artikel/${encodeURIComponent(material)}/datei/${feld}`, { headers: authHeaders() });
+        if (!res.ok) throw new Error();
+        voll = await res.json();
+    } catch (err) {
+        box.innerHTML = `<div class="no-doc">${datei.filename} konnte nicht geladen werden.</div>`;
+        return;
+    }
+
+    const url = base64ToObjectUrl(voll.data, voll.mimeType);
+    aktiveObjectUrls[boxId] = { url, stand };
+    const isImage = (voll.mimeType || '').startsWith('image/');
     box.innerHTML = `
         <div class="zeichnung-preview">
-            ${isImage ? `<img src="${url}" alt="${datei.filename}">` : ''}
-            <div><a href="${url}" target="_blank" rel="noopener">${datei.filename} öffnen ↗</a></div>
+            ${isImage ? `<img src="${url}" alt="${voll.filename}">` : ''}
+            <div><a href="${url}" target="_blank" rel="noopener">${voll.filename} öffnen ↗</a></div>
         </div>
     `;
 }
@@ -745,6 +762,10 @@ document.getElementById('artikelmappeBtn')?.addEventListener('click', async () =
         await exportArtikelmappe({
             material: order.artikelnummer, bezeichnung: order.beschreibung, dbType: order.dbType,
             maschine: '', kavitaet: null, zeichnung, einstelldatenblatt, plp,
+        }, async (feld) => {
+            const res = await fetch(`${API_URL}/artikel/${encodeURIComponent(order.artikelnummer)}/datei/${feld}`, { headers: authHeaders() });
+            if (!res.ok) throw new Error();
+            return res.json();
         });
         note.style.color = '#15803d';
         note.textContent = '✅ Artikelmappe heruntergeladen.';

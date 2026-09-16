@@ -1202,9 +1202,21 @@ function base64ToObjectUrl(base64, mimeType) {
 // Eine Object-URL je Feld merken und vor dem nächsten Rendern freigeben.
 const aktiveArtikelDateiUrls = {};
 
+// Datei-Inhalt (base64) je Artikel+Feld holen - der Artikelstamm liefert nur
+// noch die Metadaten, die PDFs liegen in einer eigenen Collection.
+async function ladeArtikelDatei(material, feld) {
+    const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(material)}/${feld}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error('Datei konnte nicht geladen werden');
+    return res.json();
+}
+
 // Zeichnung und Einstelldatenblatt sind strukturell dieselbe Datei-Ablage -
 // eine gemeinsame Anzeige-/Upload-/Löschlogik statt zweier fast identischer.
-function renderArticleDetailDatei(feld, datei) {
+// datei enthält nur Metadaten; der Inhalt wird erst hier nachgeladen, damit
+// nicht bei jedem Laden des Artikelstamms alle PDFs mitkommen.
+async function renderArticleDetailDatei(feld, datei) {
     const box = document.getElementById(`articleDetail${feld[0].toUpperCase()}${feld.slice(1)}Current`);
     if (aktiveArtikelDateiUrls[feld]) {
         URL.revokeObjectURL(aktiveArtikelDateiUrls[feld]);
@@ -1214,8 +1226,21 @@ function renderArticleDetailDatei(feld, datei) {
         box.innerHTML = `<div class="zeichnung-current">Kein${feld === 'zeichnung' ? 'e' : ''} ${ARTIKEL_DATEI_LABEL[feld]} hinterlegt.</div>`;
         return;
     }
-    const url = base64ToObjectUrl(datei.data, datei.mimeType);
-    aktiveArtikelDateiUrls[feld] = url;
+
+    const material = articleDetailMaterial;
+    box.innerHTML = `<div class="zeichnung-current"><span>📄 ${escapeHtml(datei.filename)} – wird geladen…</span></div>`;
+    let url;
+    try {
+        const voll = await ladeArtikelDatei(material, feld);
+        // Modal kann zwischenzeitlich geschlossen/gewechselt worden sein.
+        if (articleDetailMaterial !== material) return;
+        url = base64ToObjectUrl(voll.data, voll.mimeType);
+        aktiveArtikelDateiUrls[feld] = url;
+    } catch (err) {
+        box.innerHTML = `<div class="zeichnung-current"><span>📄 ${escapeHtml(datei.filename)}</span><span style="color:#b91c1c;">Laden fehlgeschlagen</span></div>`;
+        return;
+    }
+
     box.innerHTML = `
         <div class="zeichnung-current">
             <span>📄 ${escapeHtml(datei.filename)} (${new Date(datei.uploadedAt).toLocaleDateString('de-DE')})</span>
@@ -1573,7 +1598,7 @@ document.getElementById('articleDetailArtikelmappeBtn')?.addEventListener('click
     note.style.color = '#64748b';
     note.textContent = 'Erzeuge PDF...';
     try {
-        await exportArtikelmappe(article);
+        await exportArtikelmappe(article, feld => ladeArtikelDatei(article.material, feld));
         note.style.color = '#15803d';
         note.textContent = '✅ Artikelmappe heruntergeladen.';
     } catch (err) {

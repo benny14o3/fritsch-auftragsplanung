@@ -1,5 +1,6 @@
 const express = require('express');
 const Artikelstamm = require('../models/Artikelstamm');
+const ArtikelDatei = require('../models/ArtikelDatei');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
 
@@ -11,11 +12,36 @@ async function getOrCreateDoc() {
   return doc;
 }
 
+// Zeichnung/Einstelldatenblatt liegen in einer eigenen Collection. Damit die
+// Oberfläche wie bisher sehen kann, ob und was hinterlegt ist, werden hier die
+// Metadaten (ohne die base64-Daten) an die Artikel gehängt - die Datei selbst
+// holt erst die GET-Route für das jeweilige Feld.
+async function mitDateiMetadaten(artikelOderListe) {
+  const liste = Array.isArray(artikelOderListe) ? artikelOderListe : [artikelOderListe];
+  const materialien = liste.map(a => a.material).filter(Boolean);
+  const dateien = await ArtikelDatei.find({ material: { $in: materialien } }).select('-data');
+  const byKey = new Map(dateien.map(d => [`${d.material}|${d.feld}`, d]));
+  liste.forEach(a => {
+    ['zeichnung', 'einstelldatenblatt'].forEach(feld => {
+      const d = byKey.get(`${a.material}|${feld}`);
+      a[feld] = d ? { filename: d.filename, mimeType: d.mimeType, uploadedAt: d.uploadedAt } : null;
+    });
+  });
+  return artikelOderListe;
+}
+
+async function antwortMitDoc(res, doc) {
+  const obj = doc.toObject ? doc.toObject() : doc;
+  await mitDateiMetadaten(obj.artikel || []);
+  res.json(obj);
+}
+
 // Ein geteilter Artikelstamm für die ganze Firma (wie zuvor Datenbanken/Stückliste).
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const doc = await Artikelstamm.findOne();
-    res.json(doc || { artikel: [] });
+    if (!doc) return res.json({ artikel: [] });
+    await antwortMitDoc(res, doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -67,7 +93,7 @@ router.post('/upload/:type(Elastomer|PTFE)', authMiddleware, adminMiddleware, as
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
-    res.json(doc);
+    await antwortMitDoc(res, doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -93,7 +119,7 @@ router.post('/upload/stueckliste', authMiddleware, adminMiddleware, async (req, 
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
-    res.json(doc);
+    await antwortMitDoc(res, doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -121,7 +147,7 @@ router.post('/upload/plp', authMiddleware, adminMiddleware, async (req, res) => 
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
-    res.json(doc);
+    await antwortMitDoc(res, doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -152,7 +178,7 @@ router.post('/materialien', authMiddleware, adminMiddleware, async (req, res) =>
     doc.lastUpdated = new Date();
     await doc.save();
     const saved = doc.artikel.find(a => a.material === material);
-    res.status(201).json(saved);
+    res.status(201).json(await mitDateiMetadaten(saved.toObject()));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -182,46 +208,58 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
-    res.json(entry);
+    res.json(await mitDateiMetadaten(entry.toObject()));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Zeichnung (PDF/Bild) für einen Artikel hochladen bzw. entfernen - separat von
-// der PATCH-Route, weil die Datei als base64 deutlich größer ist als die
-// übrigen Felder.
-// Zeichnung und Einstelldatenblatt sind strukturell dieselbe Datei-Ablage -
-// eine gemeinsame Route statt zweier fast identischer Handler.
+// Zeichnung/Einstelldatenblatt hochladen, abrufen oder entfernen. Die Datei
+// selbst liegt in einer eigenen Collection (models/ArtikelDatei.js), nicht im
+// Artikelstamm-Dokument - siehe Kommentar dort. Zeichnung und
+// Einstelldatenblatt sind strukturell dieselbe Ablage, deshalb eine gemeinsame
+// Route statt zweier fast identischer Handler.
 router.put('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
+    const { material, feld } = req.params;
     const doc = await getOrCreateDoc();
-    const entry = doc.artikel.find(a => a.material === req.params.material);
+    const entry = doc.artikel.find(a => a.material === material);
     if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
 
     const { filename, mimeType, data } = req.body;
     if (!filename || !mimeType || !data) return res.status(400).json({ error: 'Datei unvollständig' });
-    entry[req.params.feld] = { filename, mimeType, data, uploadedAt: new Date() };
 
-    doc.updatedBy = req.userId;
-    doc.lastUpdated = new Date();
-    await doc.save();
-    res.json(entry);
+    await ArtikelDatei.findOneAndUpdate(
+      { material, feld },
+      { material, feld, filename, mimeType, data, uploadedAt: new Date(), updatedBy: req.userId },
+      { upsert: true },
+    );
+    res.json(await mitDateiMetadaten(entry.toObject()));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Datei inkl. Inhalt - nur bei Bedarf (Vorschau/Artikelmappe), nicht bei jedem
+// Laden des Artikelstamms.
+router.get('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, async (req, res) => {
+  try {
+    const { material, feld } = req.params;
+    const datei = await ArtikelDatei.findOne({ material, feld });
+    if (!datei) return res.status(404).json({ error: 'Keine Datei hinterlegt' });
+    res.json({ filename: datei.filename, mimeType: datei.mimeType, data: datei.data, uploadedAt: datei.uploadedAt });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/materialien/:material/:feld(zeichnung|einstelldatenblatt)', authMiddleware, adminMiddleware, async (req, res) => {
   try {
+    const { material, feld } = req.params;
     const doc = await getOrCreateDoc();
-    const entry = doc.artikel.find(a => a.material === req.params.material);
+    const entry = doc.artikel.find(a => a.material === material);
     if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
-    entry[req.params.feld] = null;
-    doc.updatedBy = req.userId;
-    doc.lastUpdated = new Date();
-    await doc.save();
-    res.json(entry);
+    await ArtikelDatei.deleteOne({ material, feld });
+    res.json(await mitDateiMetadaten(entry.toObject()));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Einzelnen Artikel löschen.
+// Einzelnen Artikel löschen - samt seiner hinterlegten Dateien, die sonst als
+// Waisen in der Datei-Collection zurückblieben.
 router.delete('/materialien/:material', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const doc = await getOrCreateDoc();
@@ -231,6 +269,7 @@ router.delete('/materialien/:material', authMiddleware, adminMiddleware, async (
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
+    await ArtikelDatei.deleteMany({ material: req.params.material });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
