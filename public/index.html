@@ -640,6 +640,28 @@
                 </div>
             </div>
             <div class="card">
+                <h3>Einstelldatenblätter (Sammel-Upload)</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Mehrere Einstelldatenblätter auf einmal hochladen - die Artikelnummer wird genauso aus dem Dateinamen erkannt wie bei Zeichnungen (nur Formgebung/Elastomer-Artikel werden vorgeschlagen). Vor dem Speichern zeigt eine Tabelle die erkannte Zuordnung je Datei zur Kontrolle/Korrektur an - erst ein Klick auf "Einstelldatenblätter hochladen" speichert wirklich.</p>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Einstelldatenblätter auswählen (mehrere möglich)</div>
+                    <input type="file" id="einstelldatenblattBulkFiles" accept=".pdf,image/*" multiple>
+                </label>
+                <div id="einstelldatenblattBulkPreview" class="hidden" style="margin-top: 16px;">
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Datei</th><th>Artikelnummer</th><th>Bezeichnung</th><th></th></tr></thead>
+                            <tbody id="einstelldatenblattBulkTable"></tbody>
+                        </table>
+                    </div>
+                    <datalist id="einstelldatenblattBulkArtikelListe"></datalist>
+                    <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                        <button class="btn btn-primary" id="einstelldatenblattBulkUploadBtn" style="width: auto;">Einstelldatenblätter hochladen</button>
+                        <span id="einstelldatenblattBulkStatus" style="font-size: 13px; color: #64748b;"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
                     <h3>Artikelstamm verwalten</h3>
                     <input type="text" id="databaseFilter" placeholder="🔍 Artikel suchen..." style="max-width: 240px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">

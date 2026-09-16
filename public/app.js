@@ -421,123 +421,140 @@ document.getElementById('dbPlp')?.addEventListener('change', async (e) => {
     }
 });
 
-// --- Zeichnungen: Sammel-Upload mit Zuordnung per Dateiname ---
-// Die Artikelnummer wird nicht aus einem geratenen Zahlenmuster erkannt,
-// sondern per Abgleich gegen die echten, bereits bekannten Materialnummern im
-// Artikelstamm (Substring-Suche im Dateinamen) - das ist zuverlässiger als
-// jedes Namensschema. Nichts wird automatisch gespeichert: erst erscheint eine
-// Tabelle mit der erkannten Zuordnung je Datei zur Prüfung/Korrektur, erst der
-// Klick auf "Zeichnungen hochladen" löst die eigentlichen Uploads aus.
-let zeichnungBulkEntries = [];
+// --- Zeichnungen/Einstelldatenblätter: Sammel-Upload mit Zuordnung per
+// Dateiname (gemeinsame Logik für beide Dateitypen, nur feld/DOM-IDs/Filter
+// unterscheiden sich). Die Artikelnummer wird nicht aus einem geratenen
+// Zahlenmuster erkannt, sondern per Abgleich gegen die echten, bereits
+// bekannten Materialnummern im Artikelstamm (Substring-Suche im Dateinamen) -
+// das ist zuverlässiger als jedes Namensschema. Nichts wird automatisch
+// gespeichert: erst erscheint eine Tabelle mit der erkannten Zuordnung je
+// Datei zur Prüfung/Korrektur, erst der Upload-Klick speichert wirklich.
+function initDateiBulkUpload(feld, labelSingular, labelPlural, ids, filterArtikel = () => true) {
+    let entries = [];
 
-function findMaterialInFilename(filename) {
-    const name = filename.toLowerCase();
-    const treffer = artikelstamm.artikel.filter(a => a.material && name.includes(a.material.toLowerCase()));
-    return treffer.length === 1 ? treffer[0].material : null;
-}
-
-function renderZeichnungBulkTable() {
-    const tbody = document.getElementById('zeichnungBulkTable');
-    tbody.innerHTML = '';
-    zeichnungBulkEntries.forEach((entry, idx) => {
-        const tr = document.createElement('tr');
-        const artikel = artikelstamm.artikel.find(a => a.material === entry.material);
-
-        const nameTd = document.createElement('td');
-        nameTd.textContent = entry.filename;
-        tr.appendChild(nameTd);
-
-        const artikelTd = document.createElement('td');
-        const input = document.createElement('input');
-        input.className = 'table-input';
-        input.setAttribute('list', 'zeichnungBulkArtikelListe');
-        input.value = entry.material || '';
-        input.placeholder = 'Artikelnummer wählen...';
-        input.style.borderColor = artikel ? '' : '#f87171';
-        input.addEventListener('input', () => {
-            entry.material = input.value.trim();
-            renderZeichnungBulkTable();
-        });
-        artikelTd.appendChild(input);
-        tr.appendChild(artikelTd);
-
-        const bezTd = document.createElement('td');
-        bezTd.textContent = artikel ? (artikel.bezeichnung || '–') : (entry.material ? '⚠ unbekannte Artikelnummer' : '⚠ nicht erkannt - bitte auswählen');
-        bezTd.style.color = artikel ? '#0f172a' : '#b91c1c';
-        tr.appendChild(bezTd);
-
-        const actionTd = document.createElement('td');
-        const removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.textContent = '✕';
-        removeBtn.title = 'Aus der Liste entfernen';
-        removeBtn.style.cssText = 'border:none;background:none;color:#b91c1c;font-size:15px;cursor:pointer;';
-        removeBtn.addEventListener('click', () => {
-            zeichnungBulkEntries.splice(idx, 1);
-            renderZeichnungBulkTable();
-        });
-        actionTd.appendChild(removeBtn);
-        tr.appendChild(actionTd);
-
-        tbody.appendChild(tr);
-    });
-
-    document.getElementById('zeichnungBulkPreview').classList.toggle('hidden', zeichnungBulkEntries.length === 0);
-    const alleErkannt = zeichnungBulkEntries.length > 0 &&
-        zeichnungBulkEntries.every(e => e.material && artikelstamm.artikel.some(a => a.material === e.material));
-    document.getElementById('zeichnungBulkUploadBtn').disabled = !alleErkannt;
-}
-
-document.getElementById('zeichnungBulkFiles')?.addEventListener('change', (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    const datalist = document.getElementById('zeichnungBulkArtikelListe');
-    datalist.innerHTML = artikelstamm.artikel.map(a => `<option value="${escapeHtml(a.material)}">${escapeHtml(a.bezeichnung || '')}</option>`).join('');
-
-    zeichnungBulkEntries = files.map(file => ({
-        file,
-        filename: file.name,
-        material: findMaterialInFilename(file.name),
-    }));
-    renderZeichnungBulkTable();
-});
-
-document.getElementById('zeichnungBulkUploadBtn')?.addEventListener('click', async () => {
-    const statusEl = document.getElementById('zeichnungBulkStatus');
-    const btn = document.getElementById('zeichnungBulkUploadBtn');
-    btn.disabled = true;
-    let erfolg = 0;
-    const fehlgeschlagen = [];
-
-    for (const entry of zeichnungBulkEntries) {
-        statusEl.textContent = `Lade hoch... (${erfolg + fehlgeschlagen.length + 1} von ${zeichnungBulkEntries.length})`;
-        try {
-            const base64 = await fileToBase64(entry.file);
-            const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(entry.material)}/zeichnung`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ filename: entry.filename, mimeType: entry.file.type || 'application/octet-stream', data: base64 }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
-            const idx = artikelstamm.artikel.findIndex(a => a.material === entry.material);
-            if (idx !== -1) artikelstamm.artikel[idx] = data;
-            erfolg++;
-        } catch (err) {
-            fehlgeschlagen.push(entry.filename);
-        }
+    function findMaterialInFilename(filename) {
+        const name = filename.toLowerCase();
+        const treffer = artikelstamm.artikel.filter(filterArtikel).filter(a => a.material && name.includes(a.material.toLowerCase()));
+        return treffer.length === 1 ? treffer[0].material : null;
     }
 
-    renderDatabaseTable();
-    zeichnungBulkEntries = [];
-    document.getElementById('zeichnungBulkFiles').value = '';
-    renderZeichnungBulkTable();
-    statusEl.textContent = fehlgeschlagen.length === 0
-        ? `✅ ${erfolg} Zeichnung${erfolg === 1 ? '' : 'en'} gespeichert`
-        : `✅ ${erfolg} gespeichert, ❌ fehlgeschlagen: ${fehlgeschlagen.join(', ')}`;
-    btn.disabled = false;
+    function render() {
+        const tbody = document.getElementById(ids.table);
+        tbody.innerHTML = '';
+        entries.forEach((entry, idx) => {
+            const tr = document.createElement('tr');
+            const artikel = artikelstamm.artikel.find(a => a.material === entry.material);
+
+            const nameTd = document.createElement('td');
+            nameTd.textContent = entry.filename;
+            tr.appendChild(nameTd);
+
+            const artikelTd = document.createElement('td');
+            const input = document.createElement('input');
+            input.className = 'table-input';
+            input.setAttribute('list', ids.datalist);
+            input.value = entry.material || '';
+            input.placeholder = 'Artikelnummer wählen...';
+            input.style.borderColor = artikel ? '' : '#f87171';
+            input.addEventListener('input', () => {
+                entry.material = input.value.trim();
+                render();
+            });
+            artikelTd.appendChild(input);
+            tr.appendChild(artikelTd);
+
+            const bezTd = document.createElement('td');
+            bezTd.textContent = artikel ? (artikel.bezeichnung || '–') : (entry.material ? '⚠ unbekannte Artikelnummer' : '⚠ nicht erkannt - bitte auswählen');
+            bezTd.style.color = artikel ? '#0f172a' : '#b91c1c';
+            tr.appendChild(bezTd);
+
+            const actionTd = document.createElement('td');
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '✕';
+            removeBtn.title = 'Aus der Liste entfernen';
+            removeBtn.style.cssText = 'border:none;background:none;color:#b91c1c;font-size:15px;cursor:pointer;';
+            removeBtn.addEventListener('click', () => {
+                entries.splice(idx, 1);
+                render();
+            });
+            actionTd.appendChild(removeBtn);
+            tr.appendChild(actionTd);
+
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById(ids.preview).classList.toggle('hidden', entries.length === 0);
+        const alleErkannt = entries.length > 0 &&
+            entries.every(e => e.material && artikelstamm.artikel.some(a => a.material === e.material));
+        document.getElementById(ids.uploadBtn).disabled = !alleErkannt;
+    }
+
+    document.getElementById(ids.filesInput)?.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        const datalist = document.getElementById(ids.datalist);
+        datalist.innerHTML = artikelstamm.artikel.filter(filterArtikel)
+            .map(a => `<option value="${escapeHtml(a.material)}">${escapeHtml(a.bezeichnung || '')}</option>`).join('');
+
+        entries = files.map(file => ({
+            file,
+            filename: file.name,
+            material: findMaterialInFilename(file.name),
+        }));
+        render();
+    });
+
+    document.getElementById(ids.uploadBtn)?.addEventListener('click', async () => {
+        const statusEl = document.getElementById(ids.status);
+        const btn = document.getElementById(ids.uploadBtn);
+        btn.disabled = true;
+        let erfolg = 0;
+        const fehlgeschlagen = [];
+
+        for (const entry of entries) {
+            statusEl.textContent = `Lade hoch... (${erfolg + fehlgeschlagen.length + 1} von ${entries.length})`;
+            try {
+                const base64 = await fileToBase64(entry.file);
+                const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(entry.material)}/${feld}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ filename: entry.filename, mimeType: entry.file.type || 'application/octet-stream', data: base64 }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                const idx = artikelstamm.artikel.findIndex(a => a.material === entry.material);
+                if (idx !== -1) artikelstamm.artikel[idx] = data;
+                erfolg++;
+            } catch (err) {
+                fehlgeschlagen.push(entry.filename);
+            }
+        }
+
+        renderDatabaseTable();
+        entries = [];
+        document.getElementById(ids.filesInput).value = '';
+        render();
+        statusEl.textContent = fehlgeschlagen.length === 0
+            ? `✅ ${erfolg} ${erfolg === 1 ? labelSingular : labelPlural} gespeichert`
+            : `✅ ${erfolg} gespeichert, ❌ fehlgeschlagen: ${fehlgeschlagen.join(', ')}`;
+        btn.disabled = false;
+    });
+}
+
+initDateiBulkUpload('zeichnung', 'Zeichnung', 'Zeichnungen', {
+    filesInput: 'zeichnungBulkFiles', preview: 'zeichnungBulkPreview', table: 'zeichnungBulkTable',
+    datalist: 'zeichnungBulkArtikelListe', uploadBtn: 'zeichnungBulkUploadBtn', status: 'zeichnungBulkStatus',
 });
+
+// Einstelldatenblätter gibt es nur für Formgebung (Elastomer) - Vorschläge/
+// Zuordnung deshalb auf Elastomer-Artikel eingeschränkt (wie schon im
+// Artikeldetail, das die Upload-Karte für PTFE-Artikel ausblendet).
+initDateiBulkUpload('einstelldatenblatt', 'Einstelldatenblatt', 'Einstelldatenblätter', {
+    filesInput: 'einstelldatenblattBulkFiles', preview: 'einstelldatenblattBulkPreview', table: 'einstelldatenblattBulkTable',
+    datalist: 'einstelldatenblattBulkArtikelListe', uploadBtn: 'einstelldatenblattBulkUploadBtn', status: 'einstelldatenblattBulkStatus',
+}, a => a.dbType === 'Elastomer');
 
 document.getElementById('converterFile')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
