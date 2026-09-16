@@ -24,6 +24,24 @@ function downloadBytes(bytes, filename, mimeType) {
 // Rundet Fließkomma-Rauschen aus Sollwert +/- Abweichung weg (z.B. 35.900000000000006).
 function rundeToleranz(x) { return Math.round(x * 1e6) / 1e6; }
 
+// Prüfintervall lesbar machen - eine gemeinsame Darstellung für Artikel-
+// verwaltung, Shopfloor und Export, damit überall dasselbe steht. Bei
+// 'sonstige' (kein automatisches Intervall) gilt der Freitext.
+const PRUEFINTERVALL_LABEL = {
+    einmalig: '1× je Auftrag',
+    zeit: 'alle {wert} min',
+    stueckzahl: 'alle {wert} Stk',
+    schicht: '1× je Schicht',
+};
+
+function pruefintervallText(p) {
+    const vorlage = PRUEFINTERVALL_LABEL[p.intervallTyp];
+    if (!vorlage) return p.pruefhaeufigkeit || '–';
+    if (!vorlage.includes('{wert}')) return vorlage;
+    if (p.intervallWert == null) return '–';
+    return vorlage.replace('{wert}', p.intervallWert);
+}
+
 // Zeigt die Toleranz wie auf der FSK-Karte als Abweichung vom Sollwert (z.B.
 // "± 0.3 mm" oder "+0.3 / -0.1 mm"), nicht als absolute Grenzen - genau so
 // werden Sollwert/Abweichung auch in der Artikelverwaltung eingegeben.
@@ -77,7 +95,7 @@ function pdfPlpTabelle(pdfDoc, font, fontBold, plp) {
         { key: 'sollwert', label: 'Sollwert', breite: 60, get: (p) => p.typ === 'masspruefung' ? `${p.sollwert ?? '–'}${p.einheit ? ' ' + p.einheit : ''}` : '–' },
         { key: 'toleranz', label: 'Toleranz', breite: 90, get: (p) => p.typ === 'masspruefung' ? pruefpunktToleranzText(p) : '–' },
         { key: 'pruefmittel', label: 'Prüfmittel', breite: 85, get: (p) => p.pruefmittel || '–' },
-        { key: 'haeufigkeit', label: 'Häufigkeit', breite: 85, get: (p) => p.pruefhaeufigkeit || '–' },
+        { key: 'intervall', label: 'Prüfintervall', breite: 85, get: (p) => p.typ === 'prozess' ? '–' : pruefintervallText(p) },
     ];
     const zeilenHoehe = 20;
     let page = pdfDoc.addPage([A4_BREITE, A4_HOEHE]);

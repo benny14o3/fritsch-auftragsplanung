@@ -328,6 +328,22 @@ function parsePlpTyp(rohwert) {
     return null;
 }
 
+// Prüfintervall aus dem Excel deuten - erkennt sowohl die Werte aus der
+// Vorlage ("1× je Auftrag", "alle … Stück") als auch die bisher übliche
+// Freitext-Schreibweise ("1/FA"). Alles Unbekannte wird 'sonstige', damit ein
+// ungewohnter Text nicht als falsches Intervall interpretiert wird.
+function parsePruefintervallTyp(rohwert) {
+    const v = (rohwert ?? '').toString().toLowerCase()
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+        .replace(/[.\s/×-]/g, '');
+    if (!v) return null;
+    if (v.includes('einmalig') || v.includes('auftrag') || v === '1fa') return 'einmalig';
+    if (v.includes('schicht')) return 'schicht';
+    if (v.includes('stueck') || v.includes('stk')) return 'stueckzahl';
+    if (v.includes('minute') || v.includes('min') || v.includes('zeit') || v.includes('stunde')) return 'zeit';
+    return 'sonstige';
+}
+
 // Toleranzen werden wie in der Artikelverwaltung als ±-Abweichung vom
 // Sollwert erwartet (nicht als absolute Grenzen - das hatte bei manueller
 // Eingabe schon zu falschen i.O./n.i.O.-Bewertungen geführt, siehe Artikel
@@ -351,6 +367,10 @@ async function parsePlpExcel(file) {
     const abwCol = findColumn(columns, 'toleranz', 'abweichung');
     const einheitCol = findColumn(columns, 'einheit');
     const mittelCol = findColumn(columns, 'prüfmittel', 'pruefmittel', 'messmittel');
+    // Bewusst enge Suchbegriffe: "intervall" allein würde auch "Intervallwert"
+    // treffen, "wert" auch "Sollwert".
+    const intervallTypCol = findColumn(columns, 'prüfintervall', 'pruefintervall', 'intervalltyp');
+    const intervallWertCol = findColumn(columns, 'intervallwert', 'intervall-wert');
     const haeufigkeitCol = findColumn(columns, 'häufigkeit', 'haeufigkeit', 'frequenz');
 
     const byMaterial = new Map();
@@ -379,7 +399,24 @@ async function parsePlpExcel(file) {
         }
         if (typ === 'masspruefung' || typ === 'iopruefung') {
             if (mittelCol) eintrag.pruefmittel = (r[mittelCol] ?? '').toString().trim();
-            if (haeufigkeitCol) eintrag.pruefhaeufigkeit = (r[haeufigkeitCol] ?? '').toString().trim();
+            // Prüfintervall: eigene Spalte bevorzugt, sonst die alte
+            // Häufigkeits-Spalte (z.B. "1/FA") deuten. Unbekanntes landet als
+            // Freitext unter 'sonstige' statt falsch geraten zu werden.
+            const rohIntervall = intervallTypCol ? r[intervallTypCol] : (haeufigkeitCol ? r[haeufigkeitCol] : '');
+            eintrag.intervallTyp = parsePruefintervallTyp(rohIntervall) || 'sonstige';
+            if (eintrag.intervallTyp === 'zeit' || eintrag.intervallTyp === 'stueckzahl') {
+                const wert = intervallWertCol ? parseFloat(r[intervallWertCol]) : NaN;
+                if (!isNaN(wert)) {
+                    eintrag.intervallWert = wert;
+                } else {
+                    // Wert ggf. aus dem Text ziehen ("alle 500 Stk" -> 500).
+                    const ausText = (rohIntervall ?? '').toString().match(/\d+([.,]\d+)?/);
+                    if (ausText) eintrag.intervallWert = parseFloat(ausText[0].replace(',', '.'));
+                }
+            }
+            if (eintrag.intervallTyp === 'sonstige' && haeufigkeitCol) {
+                eintrag.pruefhaeufigkeit = (r[haeufigkeitCol] ?? '').toString().trim();
+            }
         }
 
         let current = byMaterial.get(material);
@@ -1229,6 +1266,16 @@ function updatePlpDatalists() {
 
 const PLP_TYP_LABEL = { prozess: 'Prozessschritt', masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.-Prüfung' };
 
+// Auswahl fürs Prüfintervall - 'sonstige' bleibt der Freitext-Fall (kein
+// automatisches Fälligkeits-Datum), alles andere ist berechenbar.
+const PRUEFINTERVALL_OPTIONEN = [
+    ['einmalig', '1× je Auftrag'],
+    ['zeit', 'alle … Minuten'],
+    ['stueckzahl', 'alle … Stück'],
+    ['schicht', '1× je Schicht'],
+    ['sonstige', 'Sonstige (Freitext)'],
+];
+
 function renderArticleDetailPlp() {
     updatePlpDatalists();
     const tbody = document.getElementById('articleDetailPlpTable');
@@ -1334,20 +1381,73 @@ function renderArticleDetailPlp() {
         }
         tr.appendChild(einheitTd);
 
-        ['pruefmittel', 'pruefhaeufigkeit'].forEach(key => {
-            const td = document.createElement('td');
-            if (istPruefung) {
-                const input = document.createElement('input');
-                input.className = 'table-input';
-                input.value = row[key] || '';
-                input.addEventListener('input', () => { articleDetailPlpRows[idx][key] = input.value; });
-                td.appendChild(input);
-            } else {
-                td.textContent = '–';
-                td.style.color = '#cbd5e1';
+        const pruefmittelTd = document.createElement('td');
+        if (istPruefung) {
+            const input = document.createElement('input');
+            input.className = 'table-input';
+            input.value = row.pruefmittel || '';
+            input.addEventListener('input', () => { articleDetailPlpRows[idx].pruefmittel = input.value; });
+            pruefmittelTd.appendChild(input);
+        } else {
+            pruefmittelTd.textContent = '–';
+            pruefmittelTd.style.color = '#cbd5e1';
+        }
+        tr.appendChild(pruefmittelTd);
+
+        // Prüfintervall: strukturiert statt Freitext, damit später automatisch
+        // erinnert werden kann, wann die nächste Prüfung fällig ist. Nur bei
+        // 'zeit'/'stueckzahl' braucht es zusätzlich einen Wert, bei 'sonstige'
+        // bleibt das alte Freitextfeld (z.B. "bei Werkzeugwechsel").
+        const intervallTd = document.createElement('td');
+        intervallTd.style.whiteSpace = 'nowrap';
+        if (istPruefung) {
+            const select = document.createElement('select');
+            select.className = 'table-input';
+            select.style.width = 'auto';
+            PRUEFINTERVALL_OPTIONEN.forEach(([val, label]) => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = label;
+                if ((row.intervallTyp || 'sonstige') === val) opt.selected = true;
+                select.appendChild(opt);
+            });
+            select.addEventListener('change', () => {
+                articleDetailPlpRows[idx].intervallTyp = select.value;
+                if (select.value !== 'zeit' && select.value !== 'stueckzahl') articleDetailPlpRows[idx].intervallWert = undefined;
+                if (select.value !== 'sonstige') articleDetailPlpRows[idx].pruefhaeufigkeit = '';
+                renderArticleDetailPlp();
+            });
+            intervallTd.appendChild(select);
+
+            const typ = row.intervallTyp || 'sonstige';
+            if (typ === 'zeit' || typ === 'stueckzahl') {
+                const wertInput = document.createElement('input');
+                wertInput.className = 'table-input';
+                wertInput.type = 'number';
+                wertInput.min = '1';
+                wertInput.style.width = '70px';
+                wertInput.style.marginLeft = '4px';
+                wertInput.placeholder = typ === 'zeit' ? 'min' : 'Stk';
+                wertInput.value = row.intervallWert ?? '';
+                wertInput.addEventListener('input', () => {
+                    articleDetailPlpRows[idx].intervallWert = wertInput.value === '' ? undefined : Number(wertInput.value);
+                });
+                intervallTd.appendChild(wertInput);
+            } else if (typ === 'sonstige') {
+                const freitext = document.createElement('input');
+                freitext.className = 'table-input';
+                freitext.style.width = '110px';
+                freitext.style.marginLeft = '4px';
+                freitext.placeholder = 'z.B. bei Wkzg.-Wechsel';
+                freitext.value = row.pruefhaeufigkeit || '';
+                freitext.addEventListener('input', () => { articleDetailPlpRows[idx].pruefhaeufigkeit = freitext.value; });
+                intervallTd.appendChild(freitext);
             }
-            tr.appendChild(td);
-        });
+        } else {
+            intervallTd.textContent = '–';
+            intervallTd.style.color = '#cbd5e1';
+        }
+        tr.appendChild(intervallTd);
 
         const actionTd = document.createElement('td');
         actionTd.style.whiteSpace = 'nowrap';
@@ -1405,12 +1505,12 @@ document.getElementById('articleDetailAddProzessBtn')?.addEventListener('click',
 });
 
 document.getElementById('articleDetailAddMassBtn')?.addEventListener('click', () => {
-    articleDetailPlpRows.push({ typ: 'masspruefung', bezeichnung: '', sollwert: undefined, toleranzMin: undefined, toleranzMax: undefined, einheit: '', pruefmittel: '', pruefhaeufigkeit: '' });
+    articleDetailPlpRows.push({ typ: 'masspruefung', bezeichnung: '', sollwert: undefined, toleranzMin: undefined, toleranzMax: undefined, einheit: '', pruefmittel: '', intervallTyp: 'sonstige', pruefhaeufigkeit: '' });
     renderArticleDetailPlp();
 });
 
 document.getElementById('articleDetailAddIoBtn')?.addEventListener('click', () => {
-    articleDetailPlpRows.push({ typ: 'iopruefung', bezeichnung: '', pruefmittel: '', pruefhaeufigkeit: '' });
+    articleDetailPlpRows.push({ typ: 'iopruefung', bezeichnung: '', pruefmittel: '', intervallTyp: 'sonstige', pruefhaeufigkeit: '' });
     renderArticleDetailPlp();
 });
 

@@ -430,7 +430,7 @@ function renderPlp(plp) {
     box.innerHTML = `
         <div style="overflow-x:auto;">
         <table class="plp-table">
-            <thead><tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Toleranz</th><th>Prüfmittel</th><th>Häufigkeit</th></tr></thead>
+            <thead><tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Toleranz</th><th>Prüfmittel</th><th>Prüfintervall</th></tr></thead>
             <tbody>
                 ${plp.map(r => `<tr>
                     <td>${r.typ === 'masspruefung' ? 'Maßprüfung' : r.typ === 'iopruefung' ? 'i.O./n.i.O.' : 'Prozess'}</td>
@@ -438,7 +438,7 @@ function renderPlp(plp) {
                     <td>${r.typ === 'masspruefung' ? (r.sollwert ?? '–') + (r.einheit ? ' ' + r.einheit : '') : '–'}</td>
                     <td>${r.typ === 'masspruefung' ? formatToleranz(r) : '–'}</td>
                     <td>${r.pruefmittel || '–'}</td>
-                    <td>${r.pruefhaeufigkeit || '–'}</td>
+                    <td>${pruefintervallText(r)}</td>
                 </tr>`).join('')}
             </tbody>
         </table>

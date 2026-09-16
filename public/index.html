@@ -609,7 +609,7 @@
             <div class="card">
                 <h3>Produktionslenkungsplan (Prüf-/Prozessmerkmale)</h3>
                 <p style="color: #64748b; margin-bottom: 8px; font-size: 13px;">Ersetzt je Artikel die komplette Prüfpunkte-Liste (Erstfreigabe/Fehlersammelkarte/Prozessbegleitschein) - eine Zeile pro Prüf- oder Prozessmerkmal.</p>
-                <p style="color: #94a3b8; margin-bottom: 16px; font-size: 12px;">Spalten: <b>Artikelnummer</b>, <b>Typ</b> (Prozessschritt / Maßprüfung / i.O.-n.i.O.-Prüfung), <b>Bezeichnung</b>, Sollwert, Abweichung unten, Abweichung oben, Einheit, Prüfmittel, Prüfhäufigkeit. Abweichung immer als positiver Wert (wie auf der FSK-Karte, z.B. "175°C ± 5") - Sollwert/Abweichung/Einheit nur bei Maßprüfung nötig.</p>
+                <p style="color: #94a3b8; margin-bottom: 16px; font-size: 12px;">Spalten: <b>Artikelnummer</b>, <b>Typ</b> (Prozessschritt / Maßprüfung / i.O.-n.i.O.-Prüfung), <b>Bezeichnung</b>, Sollwert, Abweichung unten, Abweichung oben, Einheit, Prüfmittel, Prüfintervall, Intervallwert. Abweichung immer als positiver Wert (wie auf der FSK-Karte, z.B. "175°C ± 5") - Sollwert/Abweichung/Einheit nur bei Maßprüfung nötig. Prüfintervall: "1× je Auftrag", "alle … Minuten", "alle … Stück", "1× je Schicht" (Zahl dann in Intervallwert) oder Freitext.</p>
                 <label class="upload-area">
                     <div class="upload-icon">📤</div>
                     <div class="upload-text">Prüfplan-Excel hochladen</div>
@@ -769,7 +769,7 @@
             <div class="table-container">
                 <table>
                     <thead>
-                        <tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Abw. unten (–)</th><th>Abw. oben (+)</th><th>Einheit</th><th>Prüfmittel</th><th>Häufigkeit</th><th></th></tr>
+                        <tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Abw. unten (–)</th><th>Abw. oben (+)</th><th>Einheit</th><th>Prüfmittel</th><th>Prüfintervall</th><th></th></tr>
                     </thead>
                     <tbody id="articleDetailPlpTable"></tbody>
                 </table>

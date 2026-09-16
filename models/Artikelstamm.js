@@ -35,6 +35,14 @@ const plpEintragSchema = new mongoose.Schema({
   einheit: String,
   // Bei masspruefung und iopruefung (nicht bei prozess):
   pruefmittel: String,
+  // Prüfintervall strukturiert statt als Freitext, damit die App ausrechnen
+  // kann, wann die nächste Prüfung fällig ist (Grundlage für die geplante
+  // Erinnerung am Maschinen-Tablet). 'sonstige' = kein automatisches Intervall,
+  // dann gilt der Freitext in pruefhaeufigkeit (z.B. "bei Werkzeugwechsel").
+  // Default bewusst 'sonstige', damit bestehende Freitext-Einträge nicht
+  // plötzlich als Intervall fehlinterpretiert werden.
+  intervallTyp: { type: String, enum: ['einmalig', 'zeit', 'stueckzahl', 'schicht', 'sonstige'], default: 'sonstige' },
+  intervallWert: Number, // nur bei intervallTyp 'zeit' (Minuten) und 'stueckzahl' (Stück)
   pruefhaeufigkeit: String,
 });
 
