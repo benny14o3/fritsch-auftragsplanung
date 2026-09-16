@@ -618,6 +618,28 @@
                 <div id="plpUploadStatus" style="color: #64748b; margin-top: 12px;"></div>
             </div>
             <div class="card">
+                <h3>Zeichnungen (Sammel-Upload)</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Mehrere Zeichnungen auf einmal hochladen - die Artikelnummer wird aus dem Dateinamen erkannt (z.B. "Zeichnung_V5-25610_49682497_o.pdf" → 49682497). Vor dem Speichern zeigt eine Tabelle die erkannte Zuordnung je Datei zur Kontrolle/Korrektur an - erst ein Klick auf "Zeichnungen hochladen" speichert wirklich.</p>
+                <label class="upload-area">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Zeichnungen auswählen (mehrere möglich)</div>
+                    <input type="file" id="zeichnungBulkFiles" accept=".pdf,image/*" multiple>
+                </label>
+                <div id="zeichnungBulkPreview" class="hidden" style="margin-top: 16px;">
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Datei</th><th>Artikelnummer</th><th>Bezeichnung</th><th></th></tr></thead>
+                            <tbody id="zeichnungBulkTable"></tbody>
+                        </table>
+                    </div>
+                    <datalist id="zeichnungBulkArtikelListe"></datalist>
+                    <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                        <button class="btn btn-primary" id="zeichnungBulkUploadBtn" style="width: auto;">Zeichnungen hochladen</button>
+                        <span id="zeichnungBulkStatus" style="font-size: 13px; color: #64748b;"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
                     <h3>Artikelstamm verwalten</h3>
                     <input type="text" id="databaseFilter" placeholder="🔍 Artikel suchen..." style="max-width: 240px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;">
