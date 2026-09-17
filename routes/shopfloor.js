@@ -7,6 +7,7 @@ const ShopfloorUser = require('../models/ShopfloorUser');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
 const shopfloorAuthMiddleware = require('../middleware/shopfloorAuth');
+const { pruefFaelligkeit, gefertigteStueckzahl } = require('../lib/pruefFaelligkeit');
 
 const router = express.Router();
 
@@ -157,9 +158,33 @@ router.get('/orders/aktuell', shopfloorAuthMiddleware, async (req, res) => {
         ] },
       ],
     })
-      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge maschineId maschineId2 kavitaet startDatum endDatum produktion manuellEingeplant komponenten')
+      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge maschineId maschineId2 kavitaet zeitProHundert startDatum endDatum teilmengen produktion manuellEingeplant komponenten massungen erstfreigabe')
       .sort({ maschineId: 1, startDatum: 1 });
-    res.json(orders);
+
+    // Prüfpläne aller betroffenen Artikel in einem Rutsch holen - je Auftrag
+    // eine eigene Abfrage wäre bei jedem 8-Sekunden-Poll unnötig teuer.
+    const materialien = [...new Set(orders.map(o => o.artikelnummer).filter(Boolean))];
+    const stamm = await Artikelstamm.findOne().select('artikel.material artikel.plp');
+    const plpJeMaterial = new Map((stamm?.artikel || [])
+      .filter(a => materialien.includes(a.material))
+      .map(a => [a.material, a.plp || []]));
+
+    res.json(orders.map(order => {
+      const plp = plpJeMaterial.get(order.artikelnummer) || [];
+      // Vor der Erstfreigabe ist sie der einzige nächste Schritt - dann wird
+      // nicht zusätzlich an laufende Prüfungen erinnert.
+      const erstfreigabeOffen = plp.length > 0 && !order.erstfreigabe?.erteilt;
+      const faelligkeit = erstfreigabeOffen ? [] : pruefFaelligkeit(order, plp, jetzt);
+      const daten = order.toObject();
+      delete daten.massungen; // nur für die Fälligkeit geladen, nicht für die Liste
+      return {
+        ...daten,
+        erstfreigabeOffen,
+        stueckzahlStand: gefertigteStueckzahl(order, jetzt),
+        pruefungen: faelligkeit,
+        faelligePruefungen: faelligkeit.filter(p => p.status === 'faellig').length,
+      };
+    }));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -188,6 +213,11 @@ router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
       plp: artikel?.plp || [],
       erstfreigabeErforderlich: istErstfreigabeErforderlich(artikel),
       erstfreigabeOffen: istErstfreigabeOffen(order, artikel),
+      // Fällige Prüfungen laut Prüfintervall - der Shopfloor blendet daraus die
+      // Erinnerung ein. Solange die Erstfreigabe aussteht, ist sie der einzige
+      // nächste Schritt, dann wird nicht zusätzlich erinnert.
+      pruefungen: istErstfreigabeOffen(order, artikel) ? [] : pruefFaelligkeit(order, artikel?.plp || [], new Date()),
+      stueckzahlStand: gefertigteStueckzahl(order, new Date()),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

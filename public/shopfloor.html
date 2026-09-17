@@ -97,6 +97,13 @@
 
         .erstfreigabe-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
         .pruefpunkt-row { padding: 12px 4px; border-bottom: 1px solid #f1f5f9; }
+        /* Fällige Prüfung (Prüfintervall aus dem Produktionslenkungsplan) */
+        .pruefpunkt-row.faellig { background: #fffbeb; border-left: 4px solid #f59e0b; padding-left: 10px; border-radius: 6px; }
+        .pruef-faellig-badge { margin-left: 8px; font-size: 11px; font-weight: 700; color: #b45309; background: #fef3c7; padding: 2px 8px; border-radius: 6px; }
+        .pruef-intervall-hinweis { font-size: 12px; color: #64748b; margin: 2px 0 6px; }
+        .pruef-intervall-hinweis.faellig { color: #b45309; font-weight: 600; }
+        .pruef-erinnerung { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 13px; font-weight: 600; padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; }
+        .pruef-jetzt-btn { margin-left: auto; background: #b45309; color: #fff; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .pruefpunkt-row:last-child { border-bottom: none; }
         .pruefpunkt-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; gap: 8px; }
         .pruefpunkt-name { font-weight: 700; font-size: 14px; }

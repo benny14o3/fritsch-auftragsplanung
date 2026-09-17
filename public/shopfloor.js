@@ -83,9 +83,10 @@ document.getElementById('refreshBtn').addEventListener('click', () => {
 document.getElementById('backBtn').addEventListener('click', () => {
     activeOrderId = null;
     document.getElementById('detailView').classList.add('hidden');
+    stopDetailPolling();
+    if (detailHerkunft === 'produktion') { openProduktion(); return; }
     document.getElementById('boardView').classList.remove('hidden');
     document.getElementById('topbarTitle').textContent = 'Shopfloor';
-    stopDetailPolling();
     fetchBoard();
 });
 
@@ -201,6 +202,8 @@ function renderProduktion() {
     list.innerHTML = '';
     produktionOrders.forEach(order => {
         const stueckzahlBisher = (order.produktion || []).reduce((sum, p) => sum + p.stueckzahl, 0);
+        // Fällige Prüfungen laut Prüfintervall - vom Server gerechnet.
+        const faellige = (order.pruefungen || []).filter(p => p.status === 'faellig');
         const soll = order.gesamtmenge ?? order.menge ?? 0;
         const pct = soll > 0 ? Math.min(100, Math.round((stueckzahlBisher / soll) * 100)) : 0;
         const expanded = produktionExpandedId === order._id;
@@ -229,6 +232,8 @@ function renderProduktion() {
             <div class="desc">${order.beschreibung || ''}</div>
             ${ueberzogen ? `<div class="desc" style="color:#b91c1c;font-weight:600;">⚠ Geplantes Ende ${new Date(order.endDatum).toLocaleDateString('de-DE')} überschritten</div>` : ''}
             ${komponentenFehlen ? `<div class="desc" style="color:#a16207;font-weight:600;">⚠ Komponenten fehlen noch (trotzdem eingeplant): ${komponentenFehlen}</div>` : ''}
+            ${order.erstfreigabeOffen ? `<div class="pruef-erinnerung">🔒 Erstfreigabe steht noch aus</div>` : ''}
+            ${faellige.length ? `<div class="pruef-erinnerung">🔔 ${faellige.length === 1 ? 'Eine Prüfung ist fällig' : `${faellige.length} Prüfungen sind fällig`}: ${faellige.map(p => p.bezeichnung).join(', ')}<button type="button" class="pruef-jetzt-btn" data-pruef-order="${order._id}">Jetzt prüfen</button></div>` : ''}
             <div class="progress-row">
                 <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
                 <div class="progress-label">${stueckzahlBisher} / ${soll} Stk</div>
@@ -237,6 +242,12 @@ function renderProduktion() {
         card.addEventListener('click', () => {
             produktionExpandedId = expanded ? null : order._id;
             renderProduktion();
+        });
+        card.querySelectorAll('[data-pruef-order]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation(); // sonst würde sich nur die Runden-Eingabe auf-/zuklappen
+                openDetail(btn.dataset.pruefOrder, 'produktion');
+            });
         });
 
         if (expanded) {
@@ -306,8 +317,15 @@ function stopDetailPolling() {
 
 // --- Detail ---
 
-async function openDetail(orderId) {
+// Woher das Auftragsdetail geöffnet wurde - der Zurück-Button führt dorthin
+// zurück (Tafel oder Produktionsliste), statt immer auf der Tafel zu landen.
+let detailHerkunft = 'board';
+
+async function openDetail(orderId, herkunft = 'board') {
+    detailHerkunft = herkunft;
     activeOrderId = orderId;
+    stopProduktionPolling();
+    document.getElementById('produktionView').classList.add('hidden');
     document.getElementById('boardView').classList.add('hidden');
     document.getElementById('detailView').classList.remove('hidden');
     document.getElementById('topbarTitle').textContent = 'Auftragsdetail';
@@ -362,7 +380,7 @@ function renderDetail() {
         document.getElementById('fehlerLog').innerHTML = '<div class="locked-note">🔒 Erstfreigabe steht noch aus - Fehlersammelkarte erst danach nutzbar.</div>';
     } else {
         renderLaufzettel(order);
-        renderMassungen(order, plp);
+        renderMassungen(order, plp, currentDetail.pruefungen || []);
         renderFehler(order);
     }
 }
@@ -628,13 +646,28 @@ function renderErstfreigabe(order, plp, erforderlich, offen) {
 
 // --- Maßprüfungen und i.O./n.i.O.-Prüfungen auf der Fehlersammelkarte ---
 
-function renderMassungen(order, plp) {
+function renderMassungen(order, plp, pruefungen = []) {
     const box = document.getElementById('massungenBox');
     const pruefPunkte = (plp || []).filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
     if (pruefPunkte.length === 0) { box.innerHTML = ''; return; }
 
+    // Fälligkeit je Prüfpunkt kommt fertig gerechnet vom Server (Prüfintervall
+    // aus dem Produktionslenkungsplan) - hier nur noch anzeigen.
+    const faelligkeitJePunkt = new Map(pruefungen.map(p => [String(p.pruefpunktId), p]));
+    const faellige = pruefungen.filter(p => p.status === 'faellig');
+    const erinnerung = faellige.length
+        ? `<div class="pruef-erinnerung">🔔 ${faellige.length === 1 ? 'Eine Prüfung ist fällig' : `${faellige.length} Prüfungen sind fällig`}: ${faellige.map(p => p.bezeichnung).join(', ')}</div>`
+        : '';
+
     const massungen = order.massungen || [];
-    box.innerHTML = `<h4 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; margin-bottom: 10px;">Maßprüfungen</h4>` + pruefPunkte.map(p => {
+    box.innerHTML = `<h4 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; margin-bottom: 10px;">Maßprüfungen</h4>${erinnerung}` + pruefPunkte.map(p => {
+        const faelligkeit = faelligkeitJePunkt.get(String(p._id));
+        const faelligBadge = faelligkeit && faelligkeit.status === 'faellig'
+            ? `<span class="pruef-faellig-badge">🔔 fällig</span>`
+            : '';
+        const faelligHinweis = faelligkeit && faelligkeit.hinweis
+            ? `<div class="pruef-intervall-hinweis${faelligkeit.status === 'faellig' ? ' faellig' : ''}">${faelligkeit.hinweis}</div>`
+            : '';
         const log = massungen.filter(m => String(m.pruefpunktId) === String(p._id)).slice().reverse();
         const istMass = p.typ === 'masspruefung';
         // Maßprüfung: Istwert eintragen, live i.O./n.i.O.-Vorschau, "Erfassen" speichert.
@@ -650,11 +683,12 @@ function renderMassungen(order, plp) {
                 <button class="io-choice-btn nok" data-massung-io="${p._id}" data-massung-ergebnis="n.i.O.">❌ n.i.O.</button>
             </div>`;
         return `
-            <div class="pruefpunkt-row">
+            <div class="pruefpunkt-row${faelligkeit && faelligkeit.status === 'faellig' ? ' faellig' : ''}">
                 <div class="pruefpunkt-head">
-                    <span class="pruefpunkt-name">${p.bezeichnung}</span>
+                    <span class="pruefpunkt-name">${p.bezeichnung}${faelligBadge}</span>
                     ${istMass ? `<span class="pruefpunkt-soll">Soll ${p.sollwert ?? '–'}${p.einheit ? ' ' + p.einheit : ''} (${formatToleranz(p)})</span>` : ''}
                 </div>
+                ${faelligHinweis}
                 ${eingabe}
                 <div class="massung-log">
                     ${log.map(m => `
