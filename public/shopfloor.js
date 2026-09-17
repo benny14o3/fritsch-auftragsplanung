@@ -195,7 +195,7 @@ async function fetchProduktion() {
 function renderProduktion() {
     const list = document.getElementById('produktionList');
     if (produktionOrders.length === 0) {
-        list.innerHTML = '<div class="empty-note">Aktuell ist kein Formgebung-Auftrag terminiert.</div>';
+        list.innerHTML = '<div class="empty-note">Aktuell läuft kein Formgebung-Auftrag.</div>';
         return;
     }
     list.innerHTML = '';
@@ -205,6 +205,15 @@ function renderProduktion() {
         const pct = soll > 0 ? Math.min(100, Math.round((stueckzahlBisher / soll) * 100)) : 0;
         const expanded = produktionExpandedId === order._id;
 
+        // Läuft länger als geplant? Der Auftrag bleibt sichtbar (erst die
+        // Endbearbeitung beendet ihn), wird aber markiert.
+        let ueberzogen = false;
+        if (order.endDatum) {
+            const planEnde = new Date(order.endDatum);
+            planEnde.setHours(23, 59, 59, 999);
+            ueberzogen = planEnde < new Date();
+        }
+
         const card = document.createElement('div');
         card.className = 'order-card produktion-card';
         card.innerHTML = `
@@ -213,6 +222,7 @@ function renderProduktion() {
                 <span class="auftrag">${order.auftragsnummer || ''}</span>
             </div>
             <div class="desc">${order.beschreibung || ''}</div>
+            ${ueberzogen ? `<div class="desc" style="color:#b91c1c;font-weight:600;">⚠ Geplantes Ende ${new Date(order.endDatum).toLocaleDateString('de-DE')} überschritten</div>` : ''}
             <div class="progress-row">
                 <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
                 <div class="progress-label">${stueckzahlBisher} / ${soll} Stk</div>

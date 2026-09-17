@@ -125,22 +125,28 @@ router.get('/artikel/:material/auftraege', shopfloorAuthMiddleware, async (req, 
 
 // Aktuell laufende Produktion (nur Formgebung/Elastomer - Runden/Kavität
 // ergeben nur beim Spritzguss Sinn, CNC läuft zeitbasiert). "Aktuell" heißt:
-// heute liegt zwischen Start- und Enddatum des Auftrags. Muss vor
-// GET /orders/:orderId stehen, sonst würde diese Route "aktuell" als
+// auf einer Maschine, schon begonnen (Haupt- oder ein Teilmengen-Abschnitt)
+// und noch in Phase Produktion - fertig ist ein Auftrag erst, wenn er auf
+// Endbearbeitung gesetzt wird, NICHT wenn das geplante Enddatum vorbei ist
+// (sonst verschwände er bei Überziehung von der Maschine, obwohl er noch läuft).
+//
+// Bewusst Vergleich mit dem Zeitpunkt "jetzt" statt mit einem berechneten
+// "heute 00:00": der Server läuft in UTC, die Termine sind deutsche
+// Mitternacht - ein Tagesgrenzen-Vergleich war dadurch um einen Tag versetzt.
+//
+// Muss vor GET /orders/:orderId stehen, sonst würde diese Route "aktuell" als
 // :orderId interpretieren und versuchen, danach zu suchen.
 router.get('/orders/aktuell', shopfloorAuthMiddleware, async (req, res) => {
   try {
-    const heuteStart = new Date();
-    heuteStart.setHours(0, 0, 0, 0);
-    const heuteEnde = new Date();
-    heuteEnde.setHours(23, 59, 59, 999);
+    const jetzt = new Date();
     const orders = await Order.find({
       dbType: 'Elastomer',
       phase: 'produktion',
-      status: 'geplant',
       maschineId: { $ne: null },
-      startDatum: { $ne: null, $lte: heuteEnde },
-      endDatum: { $ne: null, $gte: heuteStart },
+      $or: [
+        { startDatum: { $ne: null, $lte: jetzt } },
+        { 'teilmengen.startDatum': { $ne: null, $lte: jetzt } },
+      ],
     })
       .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge maschineId maschineId2 kavitaet startDatum endDatum produktion')
       .sort({ maschineId: 1, startDatum: 1 });
