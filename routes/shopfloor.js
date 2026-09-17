@@ -8,6 +8,7 @@ const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
 const shopfloorAuthMiddleware = require('../middleware/shopfloorAuth');
 const { pruefFaelligkeit, gefertigteStueckzahl, endabnahmeStand, stufeVon } = require('../lib/pruefFaelligkeit');
+const { MASCHINEN } = require('../lib/maschinen');
 
 const router = express.Router();
 
@@ -99,6 +100,10 @@ router.delete('/users/:id', authMiddleware, adminMiddleware, async (req, res) =>
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// Maschinenliste für den Maschinen-Modus (ein Tablet steht fest an einer
+// Maschine und zeigt dann immer den Auftrag, der dort gerade läuft).
+router.get('/maschinen', shopfloorAuthMiddleware, (req, res) => res.json(MASCHINEN));
 
 // --- Board für die Werkstatt ---
 

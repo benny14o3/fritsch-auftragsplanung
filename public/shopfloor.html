@@ -93,6 +93,17 @@
         .komponente-info-charge { color: #475569; }
         .komponente-info-charge b { color: #0f172a; }
 
+        /* --- Maschinen-Modus --- */
+        .maschinen-auswahl { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+        .maschinen-kachel { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 16px; cursor: pointer; text-align: left; }
+        .maschinen-kachel:active { background: #f1f5f9; }
+        .maschinen-kachel-id { font-size: 20px; font-weight: 700; color: #0f172a; }
+        .maschinen-kachel-name { font-size: 13px; color: #64748b; }
+        .maschinen-karte .maschinen-artikel { font-size: 30px; font-weight: 700; line-height: 1.1; }
+        .maschinen-karte .maschinen-beschreibung { font-size: 16px; color: #334155; margin-top: 4px; }
+        .maschinen-karte .maschinen-auftrag { font-size: 13px; color: #64748b; margin: 6px 0 12px; }
+        .maschinen-oeffnen { width: 100%; margin-top: 12px; }
+
         .locked-note { color: #94a3b8; font-size: 13px; text-align: center; padding: 20px 12px; background: #f8fafc; border-radius: 8px; }
 
         .erstfreigabe-banner { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; border-radius: 8px; padding: 10px 12px; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
@@ -159,6 +170,7 @@
             <div class="sub" id="userGreeting"></div>
         </div>
         <div class="topbar-actions">
+            <button class="btn btn-secondary" id="maschineBtn">🏭 Maschine</button>
             <button class="btn btn-secondary" id="produktionBtn">🏃 Produktion</button>
             <button class="btn btn-secondary" id="refreshBtn">⟳</button>
             <button class="btn btn-danger" id="logoutBtn">Abmelden</button>
@@ -182,6 +194,20 @@
                 </div>
             </div>
             <div id="produktionList" class="order-list"></div>
+        </div>
+
+        <!-- Maschinen-Modus: ein Tablet steht fest an einer Maschine und zeigt
+             ohne Suchen den Auftrag, der dort gerade läuft. -->
+        <div id="maschinenView" class="hidden">
+            <div class="detail-header">
+                <button class="back-btn" id="maschinenBackBtn">← Zurück</button>
+                <div>
+                    <div class="detail-title" id="maschinenTitel">Maschine</div>
+                    <div class="detail-sub" id="maschinenSub"></div>
+                </div>
+                <button class="btn btn-secondary hidden" id="maschineWechselnBtn" style="margin-left:auto;width:auto;">Maschine wechseln</button>
+            </div>
+            <div id="maschinenInhalt"></div>
         </div>
 
         <div id="detailView" class="hidden">

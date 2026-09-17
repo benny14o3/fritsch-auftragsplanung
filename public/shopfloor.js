@@ -76,6 +76,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 document.getElementById('refreshBtn').addEventListener('click', () => {
     if (activeOrderId) fetchDetail(activeOrderId);
+    else if (!document.getElementById('maschinenView').classList.contains('hidden')) openMaschinenModus();
     else if (!document.getElementById('produktionView').classList.contains('hidden')) fetchProduktion();
     else fetchBoard();
 });
@@ -85,6 +86,7 @@ document.getElementById('backBtn').addEventListener('click', () => {
     document.getElementById('detailView').classList.add('hidden');
     stopDetailPolling();
     if (detailHerkunft === 'produktion') { openProduktion(); return; }
+    if (detailHerkunft === 'maschine') { openMaschinenModus(); return; }
     document.getElementById('boardView').classList.remove('hidden');
     document.getElementById('topbarTitle').textContent = 'Shopfloor';
     fetchBoard();
@@ -136,6 +138,8 @@ function renderBoard() {
 
 function stopPolling() {
     clearInterval(boardPollTimer);
+    clearInterval(maschinenPollTimer);
+    maschinenPollTimer = null;
     stopDetailPolling();
     stopProduktionPolling();
 }
@@ -159,6 +163,9 @@ document.getElementById('produktionBackBtn').addEventListener('click', closeProd
 async function openProduktion() {
     activeOrderId = null;
     stopDetailPolling();
+    clearInterval(maschinenPollTimer);
+    maschinenPollTimer = null;
+    document.getElementById('maschinenView').classList.add('hidden');
     document.getElementById('boardView').classList.add('hidden');
     document.getElementById('detailView').classList.add('hidden');
     document.getElementById('produktionView').classList.remove('hidden');
@@ -315,6 +322,139 @@ function stopDetailPolling() {
     detailPollTimer = null;
 }
 
+// --- Maschinen-Modus ---
+// Das Tablet an der Maschine zeigt ohne Suchen den Auftrag, der dort gerade
+// läuft, die fälligen Prüfungen und die Runden-Eingabe. Die gewählte Maschine
+// bleibt auf dem Gerät gespeichert, damit der Bildschirm nach einem Neustart
+// wieder dort landet.
+
+let maschinenListe = [];
+let maschinenPollTimer = null;
+
+function gewaehlteMaschine() {
+    return localStorage.getItem('shopfloorMaschine') || null;
+}
+
+function maschinenName(id) {
+    return maschinenListe.find(m => m.id === id)?.name || id;
+}
+
+document.getElementById('maschineBtn').addEventListener('click', openMaschinenModus);
+document.getElementById('maschinenBackBtn').addEventListener('click', closeMaschinenModus);
+document.getElementById('maschineWechselnBtn').addEventListener('click', () => {
+    localStorage.removeItem('shopfloorMaschine');
+    renderMaschinenModus();
+});
+
+async function openMaschinenModus() {
+    activeOrderId = null;
+    stopDetailPolling();
+    stopProduktionPolling();
+    document.getElementById('boardView').classList.add('hidden');
+    document.getElementById('detailView').classList.add('hidden');
+    document.getElementById('produktionView').classList.add('hidden');
+    document.getElementById('maschinenView').classList.remove('hidden');
+    document.getElementById('topbarTitle').textContent = 'Maschine';
+
+    if (maschinenListe.length === 0) {
+        try {
+            const res = await fetch(`${API_URL}/maschinen`, { headers: authHeaders() });
+            if (res.status === 401) return handleAuthExpired();
+            if (res.ok) maschinenListe = await res.json();
+        } catch (err) { /* ohne Liste bleibt nur die Auswahl leer */ }
+    }
+    await fetchProduktion();
+    renderMaschinenModus();
+    clearInterval(maschinenPollTimer);
+    maschinenPollTimer = setInterval(async () => {
+        if (istRundenEingabeAktiv()) return;
+        await fetchProduktion();
+        renderMaschinenModus();
+    }, 8000);
+}
+
+function closeMaschinenModus() {
+    clearInterval(maschinenPollTimer);
+    maschinenPollTimer = null;
+    document.getElementById('maschinenView').classList.add('hidden');
+    document.getElementById('boardView').classList.remove('hidden');
+    document.getElementById('topbarTitle').textContent = 'Shopfloor';
+    fetchBoard();
+}
+
+function renderMaschinenModus() {
+    const maschine = gewaehlteMaschine();
+    const titel = document.getElementById('maschinenTitel');
+    const sub = document.getElementById('maschinenSub');
+    const inhalt = document.getElementById('maschinenInhalt');
+    document.getElementById('maschineWechselnBtn').classList.toggle('hidden', !maschine);
+
+    if (!maschine) {
+        titel.textContent = 'Maschine wählen';
+        sub.textContent = 'Die Auswahl bleibt auf diesem Gerät gespeichert.';
+        inhalt.innerHTML = `<div class="maschinen-auswahl">${maschinenListe.map(m => `
+            <button type="button" class="maschinen-kachel" data-maschine="${m.id}">
+                <span class="maschinen-kachel-id">${m.id}</span>
+                <span class="maschinen-kachel-name">${m.name}</span>
+            </button>`).join('')}</div>`;
+        inhalt.querySelectorAll('[data-maschine]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                localStorage.setItem('shopfloorMaschine', btn.dataset.maschine);
+                renderMaschinenModus();
+            });
+        });
+        return;
+    }
+
+    titel.textContent = maschinenName(maschine);
+    sub.textContent = `Maschine ${maschine} · aktueller Auftrag`;
+
+    // Zweitmaschine mitzählen: manche Aufträge laufen auf zwei Maschinen.
+    const orders = produktionOrders.filter(o => o.maschineId === maschine || o.maschineId2 === maschine);
+    if (orders.length === 0) {
+        inhalt.innerHTML = `<div class="empty-note">Auf ${maschinenName(maschine)} läuft gerade kein Auftrag.<br><span style="font-size:12px;">Sobald ein Auftrag begonnen hat, erscheint er hier automatisch.</span></div>`;
+        return;
+    }
+
+    inhalt.innerHTML = orders.map(order => {
+        const gemeldet = (order.produktion || []).reduce((sum, p) => sum + p.stueckzahl, 0);
+        const soll = order.gesamtmenge ?? order.menge ?? 0;
+        const pct = soll > 0 ? Math.min(100, Math.round((gemeldet / soll) * 100)) : 0;
+        const faellige = (order.pruefungen || []).filter(p => p.status === 'faellig');
+        return `
+        <div class="card maschinen-karte">
+            <div class="maschinen-artikel">${order.artikelnummer || '–'}</div>
+            <div class="maschinen-beschreibung">${order.beschreibung || ''}</div>
+            <div class="maschinen-auftrag">Auftrag ${order.auftragsnummer || '–'} · Kavität ${order.kavitaet || '–'}</div>
+            ${order.erstfreigabeOffen ? `<div class="pruef-erinnerung">🔒 Erstfreigabe steht noch aus - bitte im Auftrag erteilen.</div>` : ''}
+            ${faellige.length ? `<div class="pruef-erinnerung">🔔 ${faellige.length === 1 ? 'Eine Prüfung ist fällig' : `${faellige.length} Prüfungen sind fällig`}: ${faellige.map(p => p.bezeichnung).join(', ')}</div>` : ''}
+            <div class="progress-row" style="margin:12px 0;">
+                <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+                <div class="progress-label">${gemeldet} / ${soll} Stk</div>
+            </div>
+            <div class="pruefpunkt-eingabe">
+                <input type="number" step="1" min="1" inputmode="numeric" class="runden-input" data-maschinen-runden="${order._id}" placeholder="Gefahrene Runden">
+                <button type="button" data-maschinen-melden="${order._id}">Erfassen</button>
+            </div>
+            <button type="button" class="btn btn-secondary maschinen-oeffnen" data-maschinen-order="${order._id}">Auftrag öffnen (Prüfungen, Zeichnung, FSK)</button>
+        </div>`;
+    }).join('');
+
+    inhalt.querySelectorAll('[data-maschinen-melden]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const orderId = btn.dataset.maschinenMelden;
+            const input = inhalt.querySelector(`[data-maschinen-runden="${orderId}"]`);
+            const runden = Number(input.value);
+            if (!runden || runden <= 0) return;
+            await meldeRunden(orderId, runden);
+            renderMaschinenModus();
+        });
+    });
+    inhalt.querySelectorAll('[data-maschinen-order]').forEach(btn => {
+        btn.addEventListener('click', () => openDetail(btn.dataset.maschinenOrder, 'maschine'));
+    });
+}
+
 // --- Detail ---
 
 // Woher das Auftragsdetail geöffnet wurde - der Zurück-Button führt dorthin
@@ -325,6 +465,9 @@ async function openDetail(orderId, herkunft = 'board') {
     detailHerkunft = herkunft;
     activeOrderId = orderId;
     stopProduktionPolling();
+    clearInterval(maschinenPollTimer);
+    maschinenPollTimer = null;
+    document.getElementById('maschinenView').classList.add('hidden');
     document.getElementById('produktionView').classList.add('hidden');
     document.getElementById('boardView').classList.add('hidden');
     document.getElementById('detailView').classList.remove('hidden');
@@ -952,12 +1095,18 @@ function handleAuthExpired() {
 function init() {
     if (!token) { showScreen(false); return; }
     showScreen(true);
-    document.getElementById('userGreeting').textContent = currentUser ? `${currentUser.name} (${currentUser.kuerzel})` : '';
+    const rolleText = currentUser?.rolle === 'qs' ? ' · QS' : '';
+    document.getElementById('userGreeting').textContent = currentUser ? `${currentUser.name} (${currentUser.kuerzel})${rolleText}` : '';
     fetchBoard();
     clearInterval(boardPollTimer);
     boardPollTimer = setInterval(() => {
-        if (!activeOrderId && document.getElementById('produktionView').classList.contains('hidden')) fetchBoard();
+        if (!activeOrderId
+            && document.getElementById('produktionView').classList.contains('hidden')
+            && document.getElementById('maschinenView').classList.contains('hidden')) fetchBoard();
     }, 8000);
+    // Ein Tablet, das fest an einer Maschine hängt, startet direkt im
+    // Maschinen-Modus - ohne dass jemand erst etwas auswählen muss.
+    if (gewaehlteMaschine()) openMaschinenModus();
 }
 
 init();
