@@ -344,6 +344,21 @@ function parsePruefintervallTyp(rohwert) {
     return 'sonstige';
 }
 
+// Prüfstufe aus dem Excel deuten. Ohne eigene Spalte wird sie aus der
+// Bezeichnung abgeleitet - "Vorhaltemaß ..." gehört zur Erstfreigabe,
+// "Endabnahme ..." zur Endabnahme, alles andere ist eine laufende Prüfung.
+function parsePruefstufe(rohwert, bezeichnung = '') {
+    const v = (rohwert ?? '').toString().toLowerCase()
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+        .replace(/[.\s/-]/g, '');
+    if (v.includes('erstfreigabe') || v.includes('vorhalte')) return 'erstfreigabe';
+    if (v.includes('endabnahme')) return 'endabnahme';
+    if (v.includes('laufend') || v.includes('serie')) return 'laufend';
+    if (/vorhalte/i.test(bezeichnung)) return 'erstfreigabe';
+    if (/endabnahme/i.test(bezeichnung)) return 'endabnahme';
+    return 'laufend';
+}
+
 // Toleranzen werden wie in der Artikelverwaltung als ±-Abweichung vom
 // Sollwert erwartet (nicht als absolute Grenzen - das hatte bei manueller
 // Eingabe schon zu falschen i.O./n.i.O.-Bewertungen geführt, siehe Artikel
@@ -372,6 +387,7 @@ async function parsePlpExcel(file) {
     const intervallTypCol = findColumn(columns, 'prüfintervall', 'pruefintervall', 'intervalltyp');
     const intervallWertCol = findColumn(columns, 'intervallwert', 'intervall-wert');
     const haeufigkeitCol = findColumn(columns, 'häufigkeit', 'haeufigkeit', 'frequenz');
+    const stufeCol = findColumn(columns, 'prüfstufe', 'pruefstufe', 'stufe');
 
     const byMaterial = new Map();
     const artikel = [];
@@ -398,6 +414,7 @@ async function parsePlpExcel(file) {
             if (einheitCol) eintrag.einheit = (r[einheitCol] ?? '').toString().trim();
         }
         if (typ === 'masspruefung' || typ === 'iopruefung') {
+            eintrag.stufe = parsePruefstufe(stufeCol ? r[stufeCol] : '', bezeichnung);
             if (mittelCol) eintrag.pruefmittel = (r[mittelCol] ?? '').toString().trim();
             // Prüfintervall: eigene Spalte bevorzugt, sonst die alte
             // Häufigkeits-Spalte (z.B. "1/FA") deuten. Unbekanntes landet als
@@ -1299,6 +1316,15 @@ function updatePlpDatalists() {
 
 const PLP_TYP_LABEL = { prozess: 'Prozessschritt', masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.-Prüfung' };
 
+// Prüfstufe: WANN im Auftrag geprüft wird. Die Vorhaltemaße gehören zur
+// Erstfreigabe und werden nur einmal je Auftrag geprüft, die Endabnahme erst
+// nach der Produktion und nur durch die QS (siehe routes/shopfloor.js).
+const PRUEFSTUFE_OPTIONEN = [
+    ['erstfreigabe', 'Erstfreigabe (1× je Auftrag)'],
+    ['laufend', 'Laufend (nach Prüfintervall)'],
+    ['endabnahme', 'Endabnahme (nur QS)'],
+];
+
 // Auswahl fürs Prüfintervall - 'sonstige' bleibt der Freitext-Fall (kein
 // automatisches Fälligkeits-Datum), alles andere ist berechenbar.
 const PRUEFINTERVALL_OPTIONEN = [
@@ -1336,6 +1362,29 @@ function renderArticleDetailPlp() {
         });
         typTd.appendChild(typSelect);
         tr.appendChild(typTd);
+
+        const stufeTd = document.createElement('td');
+        if (istPruefung) {
+            const stufeSelect = document.createElement('select');
+            stufeSelect.className = 'table-input';
+            stufeSelect.style.width = 'auto';
+            PRUEFSTUFE_OPTIONEN.forEach(([val, label]) => {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = label;
+                if ((row.stufe || 'laufend') === val) opt.selected = true;
+                stufeSelect.appendChild(opt);
+            });
+            stufeSelect.addEventListener('change', () => {
+                articleDetailPlpRows[idx].stufe = stufeSelect.value;
+                renderArticleDetailPlp();
+            });
+            stufeTd.appendChild(stufeSelect);
+        } else {
+            stufeTd.textContent = '–';
+            stufeTd.style.color = '#cbd5e1';
+        }
+        tr.appendChild(stufeTd);
 
         const bezTd = document.createElement('td');
         const bezInput = document.createElement('input');
@@ -1659,6 +1708,24 @@ function renderWerkerTable(werker) {
             td.textContent = val;
             tr.appendChild(td);
         });
+
+        // Rolle direkt umstellbar - nur QS-Konten dürfen im Shopfloor die
+        // Endabnahme erfassen (siehe routes/shopfloor.js).
+        const rolleTd = document.createElement('td');
+        const rolleSelect = document.createElement('select');
+        rolleSelect.className = 'table-input';
+        rolleSelect.style.width = 'auto';
+        [['produktion', 'Produktion'], ['qs', 'QS (darf Endabnahme)']].forEach(([val, label]) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = label;
+            if ((w.rolle || 'produktion') === val) opt.selected = true;
+            rolleSelect.appendChild(opt);
+        });
+        rolleSelect.addEventListener('change', () => setWerkerRolle(w._id, rolleSelect.value));
+        rolleTd.appendChild(rolleSelect);
+        tr.appendChild(rolleTd);
+
         const actionsTd = document.createElement('td');
         actionsTd.className = 'table-actions';
         const delBtn = document.createElement('button');
@@ -1677,6 +1744,7 @@ async function addWerker() {
     const kuerzel = document.getElementById('werkerNewKuerzel').value.trim();
     const name = document.getElementById('werkerNewName').value.trim();
     const pin = document.getElementById('werkerNewPin').value.trim();
+    const rolle = document.getElementById('werkerNewRolle').value;
     note.style.color = '#b91c1c';
     if (!kuerzel || !name || !pin) {
         note.textContent = 'Kürzel, Name und PIN sind erforderlich.';
@@ -1686,7 +1754,7 @@ async function addWerker() {
         const res = await fetch(`${API_URL}/shopfloor/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ kuerzel, name, pin }),
+            body: JSON.stringify({ kuerzel, name, pin, rolle }),
         });
         const data = await res.json();
         if (!res.ok) { note.textContent = data.error || 'Anlegen fehlgeschlagen.'; return; }
@@ -1697,6 +1765,26 @@ async function addWerker() {
     } catch (err) {
         note.textContent = 'Anlegen fehlgeschlagen.';
     }
+}
+
+async function setWerkerRolle(id, rolle) {
+    const note = document.getElementById('werkerNote');
+    try {
+        const res = await fetch(`${API_URL}/shopfloor/users/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ rolle }),
+        });
+        const daten = await res.json();
+        note.style.color = res.ok ? '#15803d' : '#b91c1c';
+        note.textContent = res.ok
+            ? `✅ ${daten.kuerzel}: Rolle auf ${rolle === 'qs' ? 'QS' : 'Produktion'} gesetzt.`
+            : (daten.error || 'Änderung fehlgeschlagen.');
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Änderung fehlgeschlagen.';
+    }
+    fetchWerker();
 }
 
 async function deleteWerker(id) {

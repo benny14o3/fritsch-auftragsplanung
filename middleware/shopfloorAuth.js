@@ -10,6 +10,9 @@ const shopfloorAuthMiddleware = (req, res, next) => {
     if (decoded.type !== 'shopfloor') return res.status(401).json({ error: 'Ungültiges Token' });
     req.shopfloorUserId = decoded.shopfloorUserId;
     req.shopfloorKuerzel = decoded.kuerzel;
+    // Ältere Tokens (vor Einführung der QS-Rolle) haben kein Rollenfeld - die
+    // gelten als Produktion, die Endabnahme bleibt für sie gesperrt.
+    req.shopfloorRolle = decoded.rolle === 'qs' ? 'qs' : 'produktion';
     next();
   } catch (err) {
     res.status(401).json({ error: 'Ungültiges Token' });

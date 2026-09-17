@@ -383,6 +383,89 @@ function renderDetail() {
         renderMassungen(order, plp, currentDetail.pruefungen || []);
         renderFehler(order);
     }
+    renderEndabnahme(order, currentDetail.endabnahme, currentDetail.rolle);
+}
+
+// Endabnahme: eigene Karte, weil sie anderen Regeln folgt als die laufenden
+// Prüfungen - nur die QS darf sie erfassen (nicht, wer produziert hat) und erst,
+// wenn die Menge fertig ist. Für eine Teilsendung kann die QS sie bewusst
+// vorziehen.
+function renderEndabnahme(order, endabnahme, rolle) {
+    const card = document.getElementById('endabnahmeCard');
+    const box = document.getElementById('endabnahmeBox');
+    if (!endabnahme || !endabnahme.erforderlich) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+
+    const istQs = rolle === 'qs';
+    const offen = endabnahme.punkte.filter(p => !p.erledigt);
+    const kopf = endabnahme.mengeFertig
+        ? `<div class="pruef-erinnerung">✅ ${endabnahme.gemeldet} von ${endabnahme.soll} Stk gemeldet - die Endabnahme kann erfolgen.</div>`
+        : `<div class="pruef-intervall-hinweis">Erst ${endabnahme.gemeldet} von ${endabnahme.soll} Stk gemeldet. Vollständig abgenommen wird nach der Produktion${istQs ? ' - für eine Teilsendung kann jetzt schon abgenommen werden.' : '.'}</div>`;
+
+    if (!istQs) {
+        box.innerHTML = kopf + `<div class="locked-note">🔒 Die Endabnahme darf nur die QS erfassen.</div>`
+            + endabnahmeLog(endabnahme);
+        return;
+    }
+
+    const teilsendung = !endabnahme.mengeFertig;
+    box.innerHTML = kopf
+        + (teilsendung ? `<div class="pruef-intervall-hinweis faellig">Wird als Teilsendung dokumentiert.</div>` : '')
+        + endabnahme.punkte.map(p => {
+            const istMass = p.typ === 'masspruefung';
+            const eingabe = istMass
+                ? `<div class="pruefpunkt-eingabe">
+                    <input type="number" step="any" inputmode="decimal" data-endabnahme-pruefpunkt="${p.pruefpunktId}" placeholder="Istwert">
+                    <span class="io-badge" data-endabnahme-badge="${p.pruefpunktId}"></span>
+                    <button data-endabnahme-add="${p.pruefpunktId}">Erfassen</button>
+                </div>`
+                : `<div class="pruefpunkt-eingabe io-choice">
+                    <button class="io-choice-btn ok" data-endabnahme-io="${p.pruefpunktId}" data-endabnahme-ergebnis="i.O.">✅ i.O.</button>
+                    <button class="io-choice-btn nok" data-endabnahme-io="${p.pruefpunktId}" data-endabnahme-ergebnis="n.i.O.">❌ n.i.O.</button>
+                </div>`;
+            return `
+                <div class="pruefpunkt-row">
+                    <div class="pruefpunkt-head">
+                        <span class="pruefpunkt-name">${p.bezeichnung}${p.erledigt ? ' <span class="io-badge ok">erfasst</span>' : ''}</span>
+                        ${istMass ? `<span class="pruefpunkt-soll">Soll ${p.sollwert ?? '–'}${p.einheit ? ' ' + p.einheit : ''}${p.pruefmittel ? ' · ' + p.pruefmittel : ''}</span>` : ''}
+                    </div>
+                    ${eingabe}
+                </div>`;
+        }).join('')
+        + (offen.length ? `<div class="pruef-intervall-hinweis">Noch offen: ${offen.map(p => p.bezeichnung).join(', ')}</div>` : '')
+        + endabnahmeLog(endabnahme);
+
+    box.querySelectorAll('input[data-endabnahme-pruefpunkt]').forEach(input => {
+        const p = endabnahme.punkte.find(pp => pp.pruefpunktId === input.dataset.endabnahmePruefpunkt);
+        const badge = box.querySelector(`[data-endabnahme-badge="${p.pruefpunktId}"]`);
+        input.addEventListener('input', () => {
+            if (input.value === '') { badge.textContent = ''; badge.className = 'io-badge'; return; }
+            const ioNio = berechneIoNioClient(Number(input.value), p.toleranzMin, p.toleranzMax);
+            badge.textContent = ioNio;
+            badge.className = `io-badge ${ioNio === 'i.O.' ? 'ok' : 'nok'}`;
+        });
+    });
+    box.querySelectorAll('[data-endabnahme-add]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const pruefpunktId = btn.dataset.endabnahmeAdd;
+            const input = box.querySelector(`input[data-endabnahme-pruefpunkt="${pruefpunktId}"]`);
+            if (input.value === '') return;
+            addMassung(pruefpunktId, { istwert: Number(input.value), teilsendung });
+        });
+    });
+    box.querySelectorAll('[data-endabnahme-io]').forEach(btn => {
+        btn.addEventListener('click', () => addMassung(btn.dataset.endabnahmeIo, { ergebnis: btn.dataset.endabnahmeErgebnis, teilsendung }));
+    });
+}
+
+function endabnahmeLog(endabnahme) {
+    const erledigt = endabnahme.punkte.filter(p => p.erledigt);
+    if (erledigt.length === 0) return '';
+    const massungen = (currentDetail.order.massungen || []).filter(m => m.stufe === 'endabnahme').slice().reverse();
+    return `<div class="massung-log" style="margin-top:10px;">${massungen.map(m => `
+        <div class="massung-log-row">
+            <span>${m.bezeichnung}: ${m.istwert != null ? m.istwert + (m.einheit ? ' ' + m.einheit : '') + ' ' : ''}<span class="io-badge ${m.ioNio === 'i.O.' ? 'ok' : 'nok'}">${m.ioNio}</span> · ${m.kuerzel} · ${new Date(m.zeitpunkt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+        </div>`).join('')}</div>`;
 }
 
 function renderKomponenten(order) {
@@ -473,6 +556,8 @@ function formatToleranz(p) {
     return `+${abwOben}${einheit}`;
 }
 
+const PRUEFSTUFE_LABEL = { erstfreigabe: 'Erstfreigabe', laufend: 'laufend', endabnahme: 'Endabnahme (QS)' };
+
 function renderPlp(plp) {
     const box = document.getElementById('plpBox');
     if (!plp || plp.length === 0) {
@@ -482,11 +567,12 @@ function renderPlp(plp) {
     box.innerHTML = `
         <div style="overflow-x:auto;">
         <table class="plp-table">
-            <thead><tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Toleranz</th><th>Prüfmittel</th><th>Prüfintervall</th></tr></thead>
+            <thead><tr><th>Typ</th><th>Bezeichnung</th><th>Stufe</th><th>Sollwert</th><th>Toleranz</th><th>Prüfmittel</th><th>Prüfintervall</th></tr></thead>
             <tbody>
                 ${plp.map(r => `<tr>
                     <td>${r.typ === 'masspruefung' ? 'Maßprüfung' : r.typ === 'iopruefung' ? 'i.O./n.i.O.' : 'Prozess'}</td>
                     <td>${r.bezeichnung || ''}</td>
+                    <td>${r.typ === 'prozess' ? '–' : PRUEFSTUFE_LABEL[r.stufe || 'laufend']}</td>
                     <td>${r.typ === 'masspruefung' ? (r.sollwert ?? '–') + (r.einheit ? ' ' + r.einheit : '') : '–'}</td>
                     <td>${r.typ === 'masspruefung' ? formatToleranz(r) : '–'}</td>
                     <td>${r.pruefmittel || '–'}</td>
@@ -558,8 +644,9 @@ function renderErstfreigabe(order, plp, erforderlich, offen) {
     }
 
     // Sowohl Maßprüfungs- als auch i.O./n.i.O.-Prüfpunkte müssen vor der Erstfreigabe
-    // dokumentiert und i.O. sein.
-    const massPunkte = plp.filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
+    // dokumentiert und i.O. sein - außer der Endabnahme, die erst nach der
+    // Produktion durch die QS erfolgt (gleiche Regel wie in routes/shopfloor.js).
+    const massPunkte = plp.filter(p => (p.typ === 'masspruefung' || p.typ === 'iopruefung') && (p.stufe || 'laufend') !== 'endabnahme');
     box.innerHTML = `
         <div class="locked-note" style="margin-bottom: 14px;">🔒 Vor Serienproduktion müssen alle Prüfungen i.O. sein und die Erstfreigabe erteilt werden.</div>
         ${massPunkte.map(p => p.typ === 'masspruefung' ? `
@@ -648,7 +735,9 @@ function renderErstfreigabe(order, plp, erforderlich, offen) {
 
 function renderMassungen(order, plp, pruefungen = []) {
     const box = document.getElementById('massungenBox');
-    const pruefPunkte = (plp || []).filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
+    // Nur die serienbegleitenden Prüfungen: die Vorhaltemaße gehören zur
+    // Erstfreigabe (einmal je Auftrag), die Endabnahme hat eine eigene Karte.
+    const pruefPunkte = (plp || []).filter(p => (p.typ === 'masspruefung' || p.typ === 'iopruefung') && (p.stufe || 'laufend') === 'laufend');
     if (pruefPunkte.length === 0) { box.innerHTML = ''; return; }
 
     // Fälligkeit je Prüfpunkt kommt fertig gerechnet vom Server (Prüfintervall
@@ -730,11 +819,17 @@ function renderMassungen(order, plp, pruefungen = []) {
 
 async function addMassung(pruefpunktId, payload) {
     try {
-        await fetch(`${API_URL}/orders/${activeOrderId}/massung`, {
+        const res = await fetch(`${API_URL}/orders/${activeOrderId}/massung`, {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify({ pruefpunktId, ...payload }),
         });
+        // Gesperrte Prüfungen (Endabnahme ohne QS-Rolle oder vor Produktionsende)
+        // nicht still schlucken - sonst passiert scheinbar einfach nichts.
+        if (!res.ok) {
+            const daten = await res.json().catch(() => ({}));
+            if (daten.error) alert(daten.error);
+        }
         fetchDetail(activeOrderId);
     } catch (err) { /* ignore */ }
 }

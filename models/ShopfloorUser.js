@@ -8,6 +8,9 @@ const shopfloorUserSchema = new mongoose.Schema({
   kuerzel: { type: String, required: true, unique: true, uppercase: true, trim: true },
   name: { type: String, required: true },
   pin: { type: String, required: true },
+  // 'qs' darf zusätzlich die Endabnahme erfassen - die Produktion darf das
+  // nicht (Vier-Augen-Prinzip: wer fertigt, nimmt nicht selbst ab).
+  rolle: { type: String, enum: ['produktion', 'qs'], default: 'produktion' },
   createdAt: { type: Date, default: Date.now },
 });
 

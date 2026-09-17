@@ -609,7 +609,7 @@
             <div class="card">
                 <h3>Produktionslenkungsplan (Prüf-/Prozessmerkmale)</h3>
                 <p style="color: #64748b; margin-bottom: 8px; font-size: 13px;">Ersetzt je Artikel die komplette Prüfpunkte-Liste (Erstfreigabe/Fehlersammelkarte/Prozessbegleitschein) - eine Zeile pro Prüf- oder Prozessmerkmal.</p>
-                <p style="color: #94a3b8; margin-bottom: 16px; font-size: 12px;">Spalten: <b>Artikelnummer</b>, <b>Typ</b> (Prozessschritt / Maßprüfung / i.O.-n.i.O.-Prüfung), <b>Bezeichnung</b>, Sollwert, Abweichung unten, Abweichung oben, Einheit, Prüfmittel, Prüfintervall, Intervallwert. Abweichung immer als positiver Wert (wie auf der FSK-Karte, z.B. "175°C ± 5") - Sollwert/Abweichung/Einheit nur bei Maßprüfung nötig. Prüfintervall: "1× je Auftrag", "alle … Minuten", "alle … Stück", "1× je Schicht" (Zahl dann in Intervallwert) oder Freitext.</p>
+                <p style="color: #94a3b8; margin-bottom: 16px; font-size: 12px;">Spalten: <b>Artikelnummer</b>, <b>Typ</b> (Prozessschritt / Maßprüfung / i.O.-n.i.O.-Prüfung), <b>Bezeichnung</b>, Prüfstufe, Sollwert, Abweichung unten, Abweichung oben, Einheit, Prüfmittel, Prüfintervall, Intervallwert. Abweichung immer als positiver Wert (wie auf der FSK-Karte, z.B. "175°C ± 5") - Sollwert/Abweichung/Einheit nur bei Maßprüfung nötig. Prüfintervall: "1× je Auftrag", "alle … Minuten", "alle … Stück", "1× je Schicht" (Zahl dann in Intervallwert) oder Freitext. Prüfstufe: "Erstfreigabe" (nur 1× je Auftrag, z.B. Vorhaltemaße), "Laufend" oder "Endabnahme" (erst nach der Produktion, nur QS) - ohne Spalte wird sie aus der Bezeichnung erkannt.</p>
                 <label class="upload-area">
                     <div class="upload-icon">📤</div>
                     <div class="upload-text">Prüfplan-Excel hochladen</div>
@@ -740,6 +740,7 @@
                                 <th>Kürzel</th>
                                 <th>Name</th>
                                 <th>PIN</th>
+                                <th>Rolle</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -748,6 +749,12 @@
                                 <td><input type="text" class="table-input" id="werkerNewKuerzel" placeholder="z.B. MH" maxlength="6"></td>
                                 <td><input type="text" class="table-input" id="werkerNewName" placeholder="Name"></td>
                                 <td><input type="password" class="table-input" id="werkerNewPin" placeholder="PIN" inputmode="numeric" maxlength="8"></td>
+                                <td>
+                                    <select class="table-input" id="werkerNewRolle" style="width: auto;">
+                                        <option value="produktion">Produktion</option>
+                                        <option value="qs">QS (darf Endabnahme)</option>
+                                    </select>
+                                </td>
                                 <td><button class="btn btn-primary" id="werkerAddBtn" style="width: auto; white-space: nowrap;">+ Hinzufügen</button></td>
                             </tr>
                         </tbody>
@@ -800,7 +807,7 @@
             <div class="table-container">
                 <table>
                     <thead>
-                        <tr><th>Typ</th><th>Bezeichnung</th><th>Sollwert</th><th>Abw. unten (–)</th><th>Abw. oben (+)</th><th>Einheit</th><th>Prüfmittel</th><th>Prüfintervall</th><th></th></tr>
+                        <tr><th>Typ</th><th>Prüfstufe</th><th>Bezeichnung</th><th>Sollwert</th><th>Abw. unten (–)</th><th>Abw. oben (+)</th><th>Einheit</th><th>Prüfmittel</th><th>Prüfintervall</th><th></th></tr>
                     </thead>
                     <tbody id="articleDetailPlpTable"></tbody>
                 </table>

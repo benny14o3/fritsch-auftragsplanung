@@ -66,6 +66,9 @@ const massungSchema = new mongoose.Schema({
   pruefpunktId: { type: mongoose.Schema.Types.ObjectId, required: true },
   bezeichnung: String,
   typ: { type: String, enum: ['masspruefung', 'iopruefung'], default: 'masspruefung' },
+  // Schnappschuss der Prüfstufe aus dem Artikelstamm ('laufend' oder
+  // 'endabnahme') - die Endabnahme darf nur die QS erfassen.
+  stufe: { type: String, enum: ['erstfreigabe', 'laufend', 'endabnahme'], default: 'laufend' },
   istwert: { type: Number, default: null }, // nur bei typ === 'masspruefung'
   sollwert: Number,
   toleranzMin: Number,
@@ -84,6 +87,7 @@ const erstfreigabeMessungSchema = new mongoose.Schema({
   pruefpunktId: { type: mongoose.Schema.Types.ObjectId, required: true },
   bezeichnung: String,
   typ: { type: String, enum: ['masspruefung', 'iopruefung'], default: 'masspruefung' },
+  stufe: { type: String, enum: ['erstfreigabe', 'laufend', 'endabnahme'], default: 'laufend' },
   istwert: Number, // nur bei typ === 'masspruefung'
   sollwert: Number,
   toleranzMin: Number,

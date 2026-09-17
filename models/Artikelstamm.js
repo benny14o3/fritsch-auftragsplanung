@@ -33,6 +33,14 @@ const plpEintragSchema = new mongoose.Schema({
   einheit: String,
   // Bei masspruefung und iopruefung (nicht bei prozess):
   pruefmittel: String,
+  // Wann im Auftrag geprüft wird:
+  //  'erstfreigabe' - gehört zur Erstfreigabe und wird nur EINMAL je Auftrag
+  //                   geprüft (z.B. die Vorhaltemaße), danach nicht wieder.
+  //  'laufend'      - die serienbegleitenden Prüfungen nach Prüfintervall.
+  //  'endabnahme'   - erst am Ende, wenn die Menge fertig ist oder eine
+  //                   Teilsendung raus soll, und nur durch die QS (nicht durch
+  //                   die Produktion) - siehe routes/shopfloor.js.
+  stufe: { type: String, enum: ['erstfreigabe', 'laufend', 'endabnahme'], default: 'laufend' },
   // Prüfintervall strukturiert statt als Freitext, damit die App ausrechnen
   // kann, wann die nächste Prüfung fällig ist (Grundlage für die geplante
   // Erinnerung am Maschinen-Tablet). 'sonstige' = kein automatisches Intervall,

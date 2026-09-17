@@ -7,7 +7,7 @@ const ShopfloorUser = require('../models/ShopfloorUser');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
 const shopfloorAuthMiddleware = require('../middleware/shopfloorAuth');
-const { pruefFaelligkeit, gefertigteStueckzahl } = require('../lib/pruefFaelligkeit');
+const { pruefFaelligkeit, gefertigteStueckzahl, endabnahmeStand, stufeVon } = require('../lib/pruefFaelligkeit');
 
 const router = express.Router();
 
@@ -57,8 +57,9 @@ router.post('/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Kürzel oder PIN falsch' });
     const valid = await user.comparePin(pin);
     if (!valid) return res.status(401).json({ error: 'Kürzel oder PIN falsch' });
-    const token = jwt.sign({ shopfloorUserId: user._id, kuerzel: user.kuerzel, type: 'shopfloor' }, process.env.JWT_SECRET, { expiresIn: '12h' });
-    res.json({ token, user: { id: user._id, kuerzel: user.kuerzel, name: user.name } });
+    const rolle = user.rolle || 'produktion';
+    const token = jwt.sign({ shopfloorUserId: user._id, kuerzel: user.kuerzel, rolle, type: 'shopfloor' }, process.env.JWT_SECRET, { expiresIn: '12h' });
+    res.json({ token, user: { id: user._id, kuerzel: user.kuerzel, name: user.name, rolle } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -73,12 +74,22 @@ router.get('/users', authMiddleware, adminMiddleware, async (req, res) => {
 
 router.post('/users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const { kuerzel, name, pin } = req.body;
+    const { kuerzel, name, pin, rolle } = req.body;
     if (!kuerzel || !name || !pin) return res.status(400).json({ error: 'Kürzel, Name und PIN erforderlich' });
     const existing = await ShopfloorUser.findOne({ kuerzel: kuerzel.trim().toUpperCase() });
     if (existing) return res.status(409).json({ error: `Kürzel ${kuerzel} existiert bereits` });
-    const user = await ShopfloorUser.create({ kuerzel, name, pin });
-    res.status(201).json({ id: user._id, kuerzel: user.kuerzel, name: user.name });
+    const user = await ShopfloorUser.create({ kuerzel, name, pin, rolle: rolle === 'qs' ? 'qs' : 'produktion' });
+    res.status(201).json({ id: user._id, kuerzel: user.kuerzel, name: user.name, rolle: user.rolle });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Rolle eines bestehenden Kontos umstellen (Produktion <-> QS).
+router.patch('/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const rolle = req.body.rolle === 'qs' ? 'qs' : 'produktion';
+    const user = await ShopfloorUser.findByIdAndUpdate(req.params.id, { rolle }, { new: true }).select('-pin');
+    if (!user) return res.status(404).json({ error: 'Konto nicht gefunden' });
+    res.json(user);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -218,6 +229,10 @@ router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
       // nächste Schritt, dann wird nicht zusätzlich erinnert.
       pruefungen: istErstfreigabeOffen(order, artikel) ? [] : pruefFaelligkeit(order, artikel?.plp || [], new Date()),
       stueckzahlStand: gefertigteStueckzahl(order, new Date()),
+      // Endabnahme: nur QS, erst nach vollständiger Produktion (oder für eine
+      // Teilsendung). Die Rolle kommt aus dem Shopfloor-Login.
+      endabnahme: endabnahmeStand(order, artikel?.plp || [], new Date()),
+      rolle: req.shopfloorRolle,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -238,7 +253,10 @@ router.post('/orders/:orderId/erstfreigabe', shopfloorAuthMiddleware, async (req
       return res.status(409).json({ error: 'Erstfreigabe wurde bereits erteilt' });
     }
 
-    const massPunkte = artikel.plp.filter(p => p.typ === 'masspruefung' || p.typ === 'iopruefung');
+    // Die Endabnahme-Punkte gehören NICHT zur Erstfreigabe - sie werden erst am
+    // Ende der Produktion von der QS geprüft. Alles andere (Vorhaltemaße und
+    // laufende Prüfungen) gehört dazu.
+    const massPunkte = artikel.plp.filter(p => (p.typ === 'masspruefung' || p.typ === 'iopruefung') && stufeVon(p) !== 'endabnahme');
     const eingaben = new Map((req.body.messungen || []).map(m => [String(m.pruefpunktId), m]));
 
     const messungen = [];
@@ -250,7 +268,7 @@ router.post('/orders/:orderId/erstfreigabe', shopfloorAuthMiddleware, async (req
         const ergebnis = eingabe?.ergebnis;
         if (ergebnis !== 'i.O.' && ergebnis !== 'n.i.O.') { fehlend.push(p.bezeichnung); return; }
         if (ergebnis === 'n.i.O.') nichtIo.push(p.bezeichnung);
-        messungen.push({ pruefpunktId: p._id, bezeichnung: p.bezeichnung, typ: 'iopruefung', ioNio: ergebnis });
+        messungen.push({ pruefpunktId: p._id, bezeichnung: p.bezeichnung, typ: 'iopruefung', stufe: stufeVon(p), ioNio: ergebnis });
         return;
       }
       const istwert = eingabe?.istwert;
@@ -262,7 +280,7 @@ router.post('/orders/:orderId/erstfreigabe', shopfloorAuthMiddleware, async (req
       const ioNio = berechneIoNio(wert, p.toleranzMin, p.toleranzMax);
       if (ioNio === 'n.i.O.') nichtIo.push(p.bezeichnung);
       messungen.push({
-        pruefpunktId: p._id, bezeichnung: p.bezeichnung, typ: 'masspruefung', istwert: wert,
+        pruefpunktId: p._id, bezeichnung: p.bezeichnung, typ: 'masspruefung', stufe: stufeVon(p), istwert: wert,
         sollwert: p.sollwert, toleranzMin: p.toleranzMin, toleranzMax: p.toleranzMax, einheit: p.einheit,
         ioNio,
       });
@@ -347,13 +365,34 @@ router.post('/orders/:orderId/massung', shopfloorAuthMiddleware, async (req, res
     const punkt = artikel?.plp?.find(p => String(p._id) === pruefpunktId && (p.typ === 'masspruefung' || p.typ === 'iopruefung'));
     if (!punkt) return res.status(404).json({ error: 'Prüfpunkt nicht gefunden' });
 
+    const stufe = stufeVon(punkt);
+    // Prüfstufe 'erstfreigabe' (Vorhaltemaße): gehört zur Erstfreigabe und wird
+    // nur einmal je Auftrag geprüft - danach hier nicht mehr erfassbar.
+    if (stufe === 'erstfreigabe') {
+      return res.status(403).json({ error: `${punkt.bezeichnung} gehört zur Erstfreigabe und wird nur einmal je Auftrag geprüft` });
+    }
+    // Endabnahme: nur QS, und erst wenn die Menge fertig gemeldet ist - vorher
+    // nur ausdrücklich für eine Teilsendung.
+    if (stufe === 'endabnahme') {
+      if (req.shopfloorRolle !== 'qs') {
+        return res.status(403).json({ error: 'Die Endabnahme darf nur die QS erfassen' });
+      }
+      const stand = endabnahmeStand(order, artikel?.plp || []);
+      if (!stand.mengeFertig && !req.body.teilsendung) {
+        return res.status(409).json({
+          error: `Endabnahme erst nach vollständiger Produktion möglich (${stand.gemeldet} von ${stand.soll} Stk gemeldet) - für eine Teilsendung ausdrücklich als Teilsendung erfassen`,
+          teilsendungMoeglich: true,
+        });
+      }
+    }
+
     let eintrag;
     if (punkt.typ === 'iopruefung') {
       if (ergebnis !== 'i.O.' && ergebnis !== 'n.i.O.') {
         return res.status(400).json({ error: 'Ergebnis muss i.O. oder n.i.O. sein' });
       }
       eintrag = {
-        pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, typ: 'iopruefung',
+        pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, typ: 'iopruefung', stufe,
         ioNio: ergebnis, kuerzel: req.shopfloorKuerzel, zeitpunkt: new Date(),
       };
     } else {
@@ -362,7 +401,7 @@ router.post('/orders/:orderId/massung', shopfloorAuthMiddleware, async (req, res
       }
       const wert = Number(istwert);
       eintrag = {
-        pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, typ: 'masspruefung', istwert: wert,
+        pruefpunktId: punkt._id, bezeichnung: punkt.bezeichnung, typ: 'masspruefung', stufe, istwert: wert,
         sollwert: punkt.sollwert, toleranzMin: punkt.toleranzMin, toleranzMax: punkt.toleranzMax, einheit: punkt.einheit,
         ioNio: berechneIoNio(wert, punkt.toleranzMin, punkt.toleranzMax),
         kuerzel: req.shopfloorKuerzel, zeitpunkt: new Date(),
@@ -379,6 +418,10 @@ router.delete('/orders/:orderId/massung/:entryId', shopfloorAuthMiddleware, asyn
   try {
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const treffer = order.massungen.find(m => String(m._id) === req.params.entryId);
+    if (treffer && treffer.stufe === 'endabnahme' && req.shopfloorRolle !== 'qs') {
+      return res.status(403).json({ error: 'Die Endabnahme darf nur die QS zurücknehmen' });
+    }
     order.massungen = order.massungen.filter(m => String(m._id) !== req.params.entryId);
     await order.save();
     res.json(order.massungen);
