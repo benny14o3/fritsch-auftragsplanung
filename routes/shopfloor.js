@@ -143,12 +143,21 @@ router.get('/orders/aktuell', shopfloorAuthMiddleware, async (req, res) => {
       dbType: 'Elastomer',
       phase: 'produktion',
       maschineId: { $ne: null },
-      $or: [
-        { startDatum: { $ne: null, $lte: jetzt } },
-        { 'teilmengen.startDatum': { $ne: null, $lte: jetzt } },
+      $and: [
+        { $or: [
+          { startDatum: { $ne: null, $lte: jetzt } },
+          { 'teilmengen.startDatum': { $ne: null, $lte: jetzt } },
+        ] },
+        // Dieselbe Regel wie der Zeitplan (istKomponentenBereit in app.js):
+        // ohne vollständigen Wareneingang kann nicht produziert werden - es sei
+        // denn, der Auftrag wurde per "Trotzdem einplanen" bewusst freigegeben.
+        { $or: [
+          { manuellEingeplant: true },
+          { komponenten: { $not: { $elemMatch: { wareneingang: null } } } },
+        ] },
       ],
     })
-      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge maschineId maschineId2 kavitaet startDatum endDatum produktion')
+      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge maschineId maschineId2 kavitaet startDatum endDatum produktion manuellEingeplant komponenten')
       .sort({ maschineId: 1, startDatum: 1 });
     res.json(orders);
   } catch (err) { res.status(500).json({ error: err.message }); }

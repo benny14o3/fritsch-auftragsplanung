@@ -214,6 +214,11 @@ function renderProduktion() {
             ueberzogen = planEnde < new Date();
         }
 
+        // Nur bei "Trotzdem einplanen" kann ein Auftrag mit offenem
+        // Wareneingang hier stehen (siehe GET /orders/aktuell) - dann sichtbar machen.
+        const fehlend = (order.komponenten || []).filter(k => !k.wareneingang).map(k => k.artikelnummer || k.bezeichnung);
+        const komponentenFehlen = fehlend.length ? fehlend.join(', ') : '';
+
         const card = document.createElement('div');
         card.className = 'order-card produktion-card';
         card.innerHTML = `
@@ -223,6 +228,7 @@ function renderProduktion() {
             </div>
             <div class="desc">${order.beschreibung || ''}</div>
             ${ueberzogen ? `<div class="desc" style="color:#b91c1c;font-weight:600;">⚠ Geplantes Ende ${new Date(order.endDatum).toLocaleDateString('de-DE')} überschritten</div>` : ''}
+            ${komponentenFehlen ? `<div class="desc" style="color:#a16207;font-weight:600;">⚠ Komponenten fehlen noch (trotzdem eingeplant): ${komponentenFehlen}</div>` : ''}
             <div class="progress-row">
                 <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
                 <div class="progress-label">${stueckzahlBisher} / ${soll} Stk</div>
