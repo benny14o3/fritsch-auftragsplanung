@@ -3139,30 +3139,69 @@ function getMachineNextFree(maschineId, exclude = {}) {
     return addWorkdays(maxEnd, 1);
 }
 
-// Für den Vergleich von Lieferterminen: kein Termin gilt als "später als alles",
-// analog zur Sortierung in planMachines.
-function liefertermSchluessel(datum) {
-    return datum ? new Date(datum).getTime() : Infinity;
+// Im Zeitplan sichtbar - und damit auf seiner Maschine belegend - ist ein
+// Auftrag, wenn alle Komponenten da sind ODER er per "Trotzdem einplanen"
+// bewusst aufgenommen wurde (gleiche Regel wie in renderGantt).
+function istImZeitplan(order) {
+    return istKomponentenBereit(order) || order.manuellEingeplant;
 }
 
-// Nächster freier Platz für einen Auftrag, der GERADE produzierbar wird - anders
-// als getMachineNextFree() reiht das nicht hinter ALLE Abschnitte der Maschine ein
-// (auch nicht hinter noch gar nicht produzierbare mit längst überholtem
-// Platzhalter-Termin), sondern nur hinter die bereits produzierbaren Aufträge
-// mit gleichem oder früherem Liefertermin. So landet der Auftrag an der zu
-// seinem Liefertermin passenden Stelle, ohne dass andere Aufträge (auch
-// manuell verschobene) angetastet werden.
-function getInsertionSlot(order, maschineId) {
-    const vorgaenger = alleZeitabschnitte(boardOrders).filter(a =>
-        a.order.phase === 'produktion' && a.orderId !== order._id && istKomponentenBereit(a.order)
-        && (a.maschineId === maschineId || a.maschineId2 === maschineId)
-        && liefertermSchluessel(a.order.lieferdatum) <= liefertermSchluessel(order.lieferdatum));
-    let frei = nextWeekday(new Date());
-    vorgaenger.forEach(a => {
-        const ende = addWorkdays(new Date(a.endDatum), 1);
-        if (ende > frei) frei = ende;
-    });
-    return frei;
+function tagesBeginn(datum) {
+    const d = new Date(datum);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+// Alle auf einer Maschine belegten Zeiträume - Haupt- und Teilmengen-Abschnitte
+// gleichwertig, ohne den eigenen Abschnitt (exclude) und ohne Aufträge, die gar
+// nicht im Zeitplan stehen.
+function belegteZeitraeume(maschineId, exclude = {}) {
+    return alleZeitabschnitte(boardOrders)
+        .filter(a => a.order.phase === 'produktion'
+            && istImZeitplan(a.order)
+            && !(a.orderId === exclude.orderId && a.teilIndex === (exclude.teilIndex ?? -1))
+            && (a.maschineId === maschineId || a.maschineId2 === maschineId))
+        .map(a => ({ start: tagesBeginn(a.startDatum), ende: tagesBeginn(a.endDatum) }));
+}
+
+// Erste Lücke ab einem Starttag, in die der Auftrag am Stück passt. Reiht nicht
+// stumpf hinter den letzten Auftrag ein, sondern füllt eine ausreichend große
+// Lücke davor - und überlappt dabei nie einen schon geplanten Abschnitt
+// (das ließ Balken im Zeitplan bisher übereinander springen).
+function findeFreieLuecke(maschinenIds, tage, abFruehestens, exclude = {}) {
+    const belegt = maschinenIds.filter(Boolean).flatMap(id => belegteZeitraeume(id, exclude));
+    let start = nextWeekday(tagesBeginn(abFruehestens));
+    // Harte Obergrenze: ohne sie würde ein unerwarteter Datensatz (z.B. ein
+    // Abschnitt ohne Ende) die Schleife endlos laufen lassen.
+    for (let i = 0; i < 500; i++) {
+        const ende = addWorkdays(start, tage - 1);
+        const kollision = belegt.find(b => b.start <= ende && b.ende >= start);
+        if (!kollision) return start;
+        start = addWorkdays(kollision.ende, 1);
+    }
+    return start;
+}
+
+// Zeitraum für einen Auftrag, der jetzt in den Zeitplan kommt: die früheste
+// freie Lücke ab heute, in die er am Stück passt. Dadurch wird Leerlauf auf der
+// Maschine gefüllt, statt den Auftrag ans Ende zu hängen - und kein bereits
+// geplanter Auftrag muss dafür weichen. Belegt ein Auftrag zwei Maschinen
+// gleichzeitig, muss die Lücke auf beiden frei sein.
+function findePlanungsZeitraum(order, maschinenIds, tage, exclude = {}) {
+    const ids = maschinenIds.filter(Boolean);
+    const startDatum = findeFreieLuecke(ids, tage, new Date(), exclude);
+    return { startDatum, endDatum: addWorkdays(startDatum, tage - 1) };
+}
+
+// Passt der bereits vergebene Termin noch? Dann bleibt er stehen - ein Auftrag
+// soll nicht grundlos verschoben werden, nur weil er neu im Zeitplan auftaucht.
+function istZeitraumFrei(order, maschinenIds, exclude = {}) {
+    if (!order.startDatum || !order.endDatum) return false;
+    const start = tagesBeginn(order.startDatum);
+    const ende = tagesBeginn(order.endDatum);
+    if (ende < nextWeekday(tagesBeginn(new Date()))) return false; // Termin liegt in der Vergangenheit
+    const belegt = maschinenIds.filter(Boolean).flatMap(id => belegteZeitraeume(id, exclude));
+    return !belegt.some(b => b.start <= ende && b.ende >= start);
 }
 
 async function handleManualAddOrder() {
@@ -3341,17 +3380,12 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
     // an der zu seinem Liefertermin passenden Stelle auf seiner Maschine
     // einsortieren - der bisherige Termin wurde oft schon lange vorher vergeben,
     // ohne Rücksicht darauf, wann die Komponenten wirklich verfügbar sind.
-    if (!warBereitVorher && istBereitJetzt && order.maschineId) {
-        const tage = Math.max(1, order.schichten || 1);
-        const frei1 = getInsertionSlot(order, order.maschineId);
-        const frei = order.maschineId2
-            ? (() => {
-                const frei2 = getInsertionSlot(order, order.maschineId2);
-                return frei1 > frei2 ? frei1 : frei2;
-            })()
-            : frei1;
-        order.startDatum = new Date(frei);
-        order.endDatum = addWorkdays(order.startDatum, tage - 1);
+    if (!warBereitVorher && istBereitJetzt && order.maschineId && !order.manuellEingeplant) {
+        const maschinen = [order.maschineId, order.maschineId2];
+        const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
+        const { startDatum, endDatum } = findePlanungsZeitraum(order, maschinen, tage, { orderId: order._id });
+        order.startDatum = startDatum;
+        order.endDatum = endDatum;
         order.status = 'geplant';
         patchBody.startDatum = order.startDatum;
         patchBody.endDatum = order.endDatum;
@@ -3375,12 +3409,31 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
 }
 
 // Auftrag trotz fehlender Komponenten in den Zeitplan aufnehmen (oder wieder
-// entfernen) - der Auftrag hat bereits einen Termin (aus der Einplanung), nur
-// die Anzeige im Zeitplan war bisher an istKomponentenBereit() gekoppelt.
+// entfernen). Der Auftrag hat zwar schon einen Termin aus der Einplanung, der
+// ist aber oft längst überholt - der Balken lag dann im Zeitplan über einem
+// anderen oder weit hinten. Deshalb beim Aufnehmen einen echten freien Platz
+// suchen und nur einen Termin behalten, der noch frei ist.
 async function setManuellEingeplant(orderId, wert) {
     const order = boardOrders.find(o => o._id === orderId);
     if (!order) return;
     order.manuellEingeplant = wert;
+
+    const patchBody = { manuellEingeplant: wert };
+    if (wert && order.maschineId) {
+        const maschinen = [order.maschineId, order.maschineId2];
+        const exclude = { orderId: order._id };
+        if (!istZeitraumFrei(order, maschinen, exclude)) {
+            const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
+            const { startDatum, endDatum } = findePlanungsZeitraum(order, maschinen, tage, exclude);
+            order.startDatum = startDatum;
+            order.endDatum = endDatum;
+            order.status = 'geplant';
+            patchBody.startDatum = startDatum;
+            patchBody.endDatum = endDatum;
+            patchBody.status = order.status;
+        }
+    }
+
     renderAll();
 
     try {
@@ -3390,7 +3443,7 @@ async function setManuellEingeplant(orderId, wert) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({ manuellEingeplant: wert }),
+            body: JSON.stringify(patchBody),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
