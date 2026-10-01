@@ -174,6 +174,8 @@
         .gantt-bar.card-ueberlastet { background: #ef4444; }
         .gantt-bar.card-ausstehend { background: #94a3b8; }
         .gantt-bar.card-manuell { background: #eab308; }
+        /* Balken, der sich mit einem anderen auf derselben Maschine überschneidet */
+        .gantt-bar.gantt-bar-konflikt { outline: 2px solid #b91c1c; outline-offset: -2px; }
         .gantt-bar.dragging { opacity: 0.4; }
         /* Artikelnummer, Auftragsnummer und Bezeichnung als eigene "Zellen" mit
            dezenter Trennlinie, statt in einer Zeile zusammengedrängt zu sein. */
@@ -417,7 +419,11 @@
             <div class="card zeitplan-card">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <h3>Zeitplan</h3>
-                    <button class="btn btn-secondary vollbild-btn" style="width: auto;" data-suffix="Formgebung">⛶ Vollbild</button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="konfliktHinweisFormgebung" style="font-size: 13px; font-weight: 600; color: #b91c1c;"></span>
+                        <button class="btn btn-secondary konflikt-btn hidden" style="width: auto;" data-suffix="Formgebung">Überlappungen auflösen</button>
+                        <button class="btn btn-secondary vollbild-btn" style="width: auto;" data-suffix="Formgebung">⛶ Vollbild</button>
+                    </div>
                 </div>
                 <div class="gantt-wrapper">
                     <div class="gantt-grid" id="ganttGridFormgebung"></div>
@@ -478,7 +484,11 @@
             <div class="card zeitplan-card">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <h3>Zeitplan</h3>
-                    <button class="btn btn-secondary vollbild-btn" style="width: auto;" data-suffix="Cnc">⛶ Vollbild</button>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="konfliktHinweisCnc" style="font-size: 13px; font-weight: 600; color: #b91c1c;"></span>
+                        <button class="btn btn-secondary konflikt-btn hidden" style="width: auto;" data-suffix="Cnc">Überlappungen auflösen</button>
+                        <button class="btn btn-secondary vollbild-btn" style="width: auto;" data-suffix="Cnc">⛶ Vollbild</button>
+                    </div>
                 </div>
                 <div class="gantt-wrapper">
                     <div class="gantt-grid" id="ganttGridCnc"></div>

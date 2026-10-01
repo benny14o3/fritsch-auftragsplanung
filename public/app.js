@@ -114,6 +114,14 @@ document.querySelectorAll('.vollbild-btn').forEach(btn => {
     });
 });
 
+// Überlappende Balken im Zeitplan auflösen (siehe loeseUeberlappungen).
+document.querySelectorAll('.konflikt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const dbType = Object.keys(DBTYPE_SUFFIX).find(k => DBTYPE_SUFFIX[k] === btn.dataset.suffix);
+        if (dbType) loeseUeberlappungen(dbType);
+    });
+});
+
 function switchPage(event) {
     showPage(event.currentTarget.getAttribute('data-page'));
 }
@@ -2658,8 +2666,26 @@ function renderGantt(orders, dbType) {
     // manuell trotz fehlender Komponenten eingeplante (siehe manuellEingeplant-Button
     // auf der Kanban-Karte). Ein Auftrag kann mehrere Zeitabschnitte haben (siehe
     // alleZeitabschnitte) - jeder davon bekommt einen eigenen Balken.
-    const bereiteOrders = orders.filter(o => istKomponentenBereit(o) || o.manuellEingeplant);
+    const bereiteOrders = orders.filter(o => istImZeitplan(o));
     const abschnitte = alleZeitabschnitte(bereiteOrders);
+
+    // Überlappende Balken rot umranden und oben einen Hinweis samt Knopf zum
+    // Auflösen zeigen - sonst liegen zwei Aufträge unbemerkt übereinander.
+    const konflikte = findeUeberlappungen(dbType);
+    const konfliktSchluessel = new Set(konflikte.flatMap(k => [abschnittSchluessel(k.frueher), abschnittSchluessel(k.spaeter)]));
+    const hinweis = document.getElementById('konfliktHinweis' + suffix);
+    const knopf = document.querySelector(`.konflikt-btn[data-suffix="${suffix}"]`);
+    if (hinweis && knopf) {
+        const anzahl = konflikte.length;
+        if (anzahl > 0) {
+            hinweis.style.color = '#b91c1c';
+            hinweis.textContent = `⚠ ${anzahl} Überlappung${anzahl === 1 ? '' : 'en'}`;
+            knopf.classList.remove('hidden');
+        } else {
+            hinweis.textContent = '';
+            knopf.classList.add('hidden');
+        }
+    }
     const tage = computeTimelineTage(abschnitte);
     const wochen = groupByWeek(tage);
 
@@ -2750,7 +2776,8 @@ function renderGantt(orders, dbType) {
             const istTeilmenge = a.teilIndex !== -1 || (o.teilmengen && o.teilmengen.length > 0);
             const fehlendeKomponenten = o.manuellEingeplant && !istKomponentenBereit(o);
             const bar = document.createElement('div');
-            bar.className = `gantt-bar card-${a.status}${fehlendeKomponenten ? ' card-manuell' : ''}`;
+            const hatKonflikt = konfliktSchluessel.has(abschnittSchluessel(a));
+            bar.className = `gantt-bar card-${a.status}${fehlendeKomponenten ? ' card-manuell' : ''}${hatKonflikt ? ' gantt-bar-konflikt' : ''}`;
             const lieferwoche = formatLieferwoche(o.lieferdatum);
             // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
             const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
@@ -3191,6 +3218,86 @@ function findePlanungsZeitraum(order, maschinenIds, tage, exclude = {}) {
     const ids = maschinenIds.filter(Boolean);
     const startDatum = findeFreieLuecke(ids, tage, new Date(), exclude);
     return { startDatum, endDatum: addWorkdays(startDatum, tage - 1) };
+}
+
+// Abschnitte, die sich im Zeitplan mit einem anderen auf derselben Maschine
+// überschneiden. Nötig, weil Termine auch von Hand (Drag & Drop, Teilmengen)
+// oder aus der Zeit vor der Lückensuche stammen können - dann liegen zwei
+// Balken übereinander, ohne dass es jemandem auffällt.
+function findeUeberlappungen(dbType) {
+    const sichtbare = alleZeitabschnitte(boardOrders.filter(o =>
+        o.dbType === dbType && o.phase === 'produktion' && istImZeitplan(o)));
+    const konflikte = [];
+    sichtbare.forEach((a, i) => {
+        sichtbare.slice(i + 1).forEach(b => {
+            const gemeinsameMaschine = [a.maschineId, a.maschineId2].filter(Boolean)
+                .some(m => m === b.maschineId || m === b.maschineId2);
+            if (!gemeinsameMaschine) return;
+            if (tagesBeginn(a.startDatum) <= tagesBeginn(b.endDatum)
+                && tagesBeginn(a.endDatum) >= tagesBeginn(b.startDatum)) {
+                // Der später beginnende Abschnitt ist der, der ausweichen muss.
+                const [frueher, spaeter] = tagesBeginn(a.startDatum) <= tagesBeginn(b.startDatum) ? [a, b] : [b, a];
+                konflikte.push({ frueher, spaeter });
+            }
+        });
+    });
+    return konflikte;
+}
+
+function abschnittSchluessel(a) {
+    return `${a.orderId}|${a.teilIndex}`;
+}
+
+// Überschneidungen auflösen: der jeweils später beginnende Abschnitt rückt in
+// die nächste freie Lücke. Die früher beginnenden bleiben, wo sie sind, damit
+// sich nicht der ganze Plan verschiebt.
+async function loeseUeberlappungen(dbType) {
+    const hinweis = document.getElementById('konfliktHinweis' + DBTYPE_SUFFIX[dbType]);
+    let verschoben = 0;
+
+    for (let runde = 0; runde < 50; runde++) {
+        const konflikte = findeUeberlappungen(dbType);
+        if (konflikte.length === 0) break;
+        const a = konflikte[0].spaeter;
+        const order = boardOrders.find(o => o._id === a.orderId);
+        if (!order) break;
+
+        const exclude = { orderId: a.orderId, teilIndex: a.teilIndex };
+        const tage = Math.max(1, a.schichten || berechneBearbeitungszeit(order, a.menge).tage);
+        const maschinen = [a.maschineId, a.maschineId2];
+        const startDatum = findeFreieLuecke(maschinen, tage, a.startDatum, exclude);
+        const endDatum = addWorkdays(startDatum, tage - 1);
+
+        let patchBody;
+        if (a.teilIndex === -1) {
+            order.startDatum = startDatum;
+            order.endDatum = endDatum;
+            patchBody = { startDatum, endDatum };
+        } else {
+            order.teilmengen[a.teilIndex].startDatum = startDatum;
+            order.teilmengen[a.teilIndex].endDatum = endDatum;
+            patchBody = { teilmengen: order.teilmengen };
+        }
+        verschoben++;
+
+        try {
+            await fetch(`${API_URL}/orders/${order._id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(patchBody),
+            });
+        } catch (err) {
+            if (hinweis) hinweis.textContent = 'Speichern fehlgeschlagen.';
+            break;
+        }
+    }
+
+    renderAll();
+    if (hinweis && verschoben > 0 && findeUeberlappungen(dbType).length === 0) {
+        hinweis.style.color = '#15803d';
+        hinweis.textContent = `✅ ${verschoben} Auftrag${verschoben === 1 ? '' : 'e'} verschoben, keine Überlappung mehr.`;
+        setTimeout(() => renderAll(), 4000);
+    }
 }
 
 // Passt der bereits vergebene Termin noch? Dann bleibt er stehen - ein Auftrag
