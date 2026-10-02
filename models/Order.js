@@ -122,6 +122,16 @@ const teilmengeSchema = new mongoose.Schema({
   status: { type: String, enum: ['ausstehend', 'geplant', 'ueberlastet'], default: 'geplant' },
 });
 
+// Eine ausgelieferte (Teil-)Sendung. Die Istmenge eines Auftrags ist die Summe
+// aller Sendungen - Teilsendungen sind bei uns üblich (siehe auch die Endabnahme
+// je Teilsendung in routes/shopfloor.js), deshalb ein Log statt einer Zahl.
+const lieferungSchema = new mongoose.Schema({
+  menge: { type: Number, required: true },
+  datum: { type: Date, default: Date.now },
+  lieferscheinnummer: { type: String, default: '' },
+  erfasstVon: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+});
+
 const orderSchema = new mongoose.Schema({
   auftragsnummer: String,
   bestellnummer: String,
@@ -130,6 +140,12 @@ const orderSchema = new mongoose.Schema({
   beschreibung: String,
   komponenten: [komponenteSchema],
   menge: Number,
+  // Sollmenge laut Kundenbestellung - bewusst getrennt von der Fertigungsmenge
+  // (menge/gesamtmenge): gefertigt wird oft etwas mehr oder weniger (Ausschuss,
+  // volle Runden), geliefert werden muss aber die bestellte Menge.
+  bestellmenge: { type: Number, default: null },
+  // Tatsächlich ausgelieferte (Teil-)Sendungen - Summe = Istmenge.
+  lieferungen: [lieferungSchema],
   // Ursprüngliche Gesamtmenge des Fertigungsauftrags, unverändert durch
   // Teilmengen-Aufteilung - menge + Summe(teilmengen.menge) darf das nie
   // übersteigen. Wird beim ersten Speichern automatisch aus menge befüllt.

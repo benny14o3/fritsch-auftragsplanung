@@ -1951,6 +1951,9 @@ function planMachines(orders) {
     const artikelCol = findColumn(columns, 'artikel');
     const auftragsCol = findColumn(columns, 'auftrag');
     const mengeCol = findColumn(columns, 'menge');
+    // Eigene Bestell-/Sollmengenspalte, falls vorhanden - sonst gilt die
+    // Auftragsmenge auch als Sollmenge und kann je Auftrag korrigiert werden.
+    const bestellmengeCol = findColumn(columns, 'bestellmenge', 'sollmenge');
     const bestellCol = findColumn(columns, 'bestellnummer');
     const lieferdatumCol = findColumn(columns, 'lieferdatum');
 
@@ -1978,6 +1981,7 @@ function planMachines(orders) {
             beschreibung: artikel?.bezeichnung || '',
             komponenten,
             menge: parseMenge(o[mengeCol]),
+            bestellmenge: (bestellmengeCol ? parseMenge(o[bestellmengeCol]) : 0) || parseMenge(o[mengeCol]),
             dbType,
             maschinenNamen: dbType === 'Elastomer'
                 ? (classifyElastomerSubtyp(artikel?.maschine) ? [classifyElastomerSubtyp(artikel?.maschine)] : [])
@@ -2094,7 +2098,9 @@ async function saveOrdersToBackend(orders) {
 function isEditingDateInput() {
     const el = document.activeElement;
     if (!el) return false;
-    if (el.tagName === 'INPUT') return el.type === 'date' || el.classList.contains('komp-charge') || el.classList.contains('kanban-card-menge');
+    if (el.tagName === 'INPUT') return el.type === 'date' || el.classList.contains('komp-charge')
+        || el.classList.contains('kanban-card-menge') || el.classList.contains('kanban-card-bestellmenge')
+        || el.classList.contains('lieferung-menge') || el.classList.contains('lieferung-ls');
     return el.tagName === 'TEXTAREA' && el.classList.contains('kanban-card-kommentar');
 }
 
@@ -2197,7 +2203,7 @@ function buildCardElement(order, { spalte = null } = {}) {
         teilmengenHtml = `<div class="kanban-card-teilmengen">${zeilen}</div>`;
     }
 
-    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${mengeText} · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>${teilmengenHtml}${kommentarHtml}`;
+    card.innerHTML = `<div class="kanban-card-title">${badge} ${escapeHtml(order.artikelnummer)}</div>${desc}${bestellung}${parallel}${komponentenHtml}<div class="kanban-card-meta">Auftrag ${escapeHtml(order.auftragsnummer)} · ${mengeText} · ${(order.bearbeitungsMin / 60).toFixed(1)}h · ${order.schichten} Sch.</div>${teilmengenHtml}${mengenHtml(order)}${kommentarHtml}`;
 
     card.querySelectorAll('.komp-date').forEach(input => {
         input.draggable = false;
@@ -2272,6 +2278,46 @@ function buildCardElement(order, { spalte = null } = {}) {
         });
     }
 
+    const bestellmengeInput = card.querySelector('.kanban-card-bestellmenge');
+    if (bestellmengeInput) {
+        bestellmengeInput.draggable = false;
+        bestellmengeInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        bestellmengeInput.addEventListener('click', (e) => e.stopPropagation());
+        bestellmengeInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            setBestellmenge(order._id, bestellmengeInput.value === '' ? null : parseInt(bestellmengeInput.value));
+        });
+    }
+
+    card.querySelectorAll('.lieferung-neu input').forEach(input => {
+        input.draggable = false;
+        input.addEventListener('mousedown', (e) => e.stopPropagation());
+        input.addEventListener('click', (e) => e.stopPropagation());
+    });
+    const lieferungAddBtn = card.querySelector('.lieferung-add-btn');
+    if (lieferungAddBtn) {
+        lieferungAddBtn.draggable = false;
+        lieferungAddBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+        lieferungAddBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const menge = parseInt(card.querySelector('.lieferung-menge').value);
+            if (!menge || menge <= 0) return;
+            addLieferung(order._id, {
+                menge,
+                datum: card.querySelector('.lieferung-datum').value,
+                lieferscheinnummer: card.querySelector('.lieferung-ls').value.trim(),
+            });
+        });
+    }
+    card.querySelectorAll('.lieferung-remove-btn').forEach(btn => {
+        btn.draggable = false;
+        btn.addEventListener('mousedown', (e) => e.stopPropagation());
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeLieferung(order._id, parseInt(btn.dataset.lieferungIndex));
+        });
+    });
+
     card.querySelectorAll('.teilmenge-remove-btn').forEach(btn => {
         btn.draggable = false;
         btn.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -2282,6 +2328,49 @@ function buildCardElement(order, { spalte = null } = {}) {
     });
 
     return card;
+}
+
+// Summe der tatsächlich ausgelieferten Teilsendungen.
+function gelieferteMenge(order) {
+    return (order.lieferungen || []).reduce((summe, l) => summe + (l.menge || 0), 0);
+}
+
+// Sollmenge laut Bestellung und tatsächlich ausgelieferte Menge - bewusst
+// getrennt von der Fertigungsmenge in der Meta-Zeile, weil gefertigt oft etwas
+// mehr oder weniger wird als bestellt. Steht auf jeder Karte in jeder Phase.
+function mengenHtml(order) {
+    const soll = order.bestellmenge ?? null;
+    const geliefert = gelieferteMenge(order);
+    const offen = soll !== null ? soll - geliefert : null;
+    const statusText = soll === null
+        ? '<span class="mengen-offen">Sollmenge eintragen</span>'
+        : offen > 0 ? `<span class="mengen-offen">noch ${offen} Stk offen</span>`
+        : offen === 0 ? '<span class="mengen-fertig">vollständig geliefert</span>'
+        : `<span class="mengen-mehr">${-offen} Stk mehr geliefert</span>`;
+
+    const zeilen = (order.lieferungen || []).map((l, idx) => `
+        <div class="lieferung-zeile">
+            <span>📦 ${l.menge} Stk · ${formatDateShort(l.datum)}${l.lieferscheinnummer ? ` · LS ${escapeHtml(l.lieferscheinnummer)}` : ''}</span>
+            <button type="button" class="lieferung-remove-btn" data-lieferung-index="${idx}" title="Sendung entfernen">✕</button>
+        </div>`).join('');
+
+    return `<div class="kanban-card-mengen">
+        <div class="mengen-kopf">
+            <span>🧾 Soll (Bestellung)</span>
+            <input type="number" class="kanban-card-bestellmenge" min="0" placeholder="–" value="${soll ?? ''}"> Stk
+        </div>
+        <div class="mengen-kopf">
+            <span>📦 Geliefert</span>
+            <b>${geliefert}</b> Stk · ${statusText}
+        </div>
+        ${zeilen}
+        <div class="lieferung-neu">
+            <input type="number" class="lieferung-menge" min="1" placeholder="Menge">
+            <input type="date" class="lieferung-datum" value="${toDateInputValue(new Date())}">
+            <input type="text" class="lieferung-ls" placeholder="Lieferschein">
+            <button type="button" class="lieferung-add-btn">+ Sendung</button>
+        </div>
+    </div>`;
 }
 
 function addCardAction(card, label, onClick, variant = '') {
@@ -2796,7 +2885,7 @@ function renderGantt(orders, dbType) {
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
                 ${statusTeile.length ? `<div class="gantt-bar-zelle gantt-bar-status${zuSpaet ? ' spaet' : ''}">${statusTeile.join(' · ')}</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\nSoll (Bestellung) ${o.bestellmenge ?? '–'} Stk · geliefert ${gelieferteMenge(o)} Stk\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
             bar.draggable = true;
@@ -3316,6 +3405,8 @@ async function handleManualAddOrder() {
     const auftragsnummer = document.getElementById('manualAuftragsnummer').value.trim();
     const artikelnummer = document.getElementById('manualArtikelnummer').value.trim();
     const menge = parseMenge(document.getElementById('manualMenge').value);
+    // Sollmenge laut Bestellung - ohne eigene Angabe gilt die Fertigungsmenge.
+    const bestellmengeEingabe = parseMenge(document.getElementById('manualBestellmenge').value);
     const bestellnummer = document.getElementById('manualBestellnummer').value.trim();
     const lieferdatumStr = document.getElementById('manualLieferdatum').value;
 
@@ -3395,6 +3486,7 @@ async function handleManualAddOrder() {
         beschreibung: artikel?.bezeichnung || '',
         komponenten,
         menge,
+        bestellmenge: bestellmengeEingabe || menge,
         dbType,
         kavitaet,
         rundenProSchicht,
@@ -3430,6 +3522,7 @@ async function handleManualAddOrder() {
         document.getElementById('manualAuftragsnummer').value = '';
         document.getElementById('manualArtikelnummer').value = '';
         document.getElementById('manualMenge').value = '';
+        document.getElementById('manualBestellmenge').value = '';
         document.getElementById('manualBestellnummer').value = '';
         document.getElementById('manualLieferdatum').value = '';
         await fetchBoard();
@@ -3555,6 +3648,49 @@ async function setManuellEingeplant(orderId, wert) {
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
     }
+}
+
+// Sollmenge laut Bestellung setzen (oder leeren) - unabhängig von der
+// Fertigungsmenge, die weiter über setMenge gepflegt wird.
+async function setBestellmenge(orderId, bestellmenge) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.bestellmenge = bestellmenge;
+    renderAll();
+    await patchOrder(orderId, { bestellmenge });
+}
+
+// Eine ausgelieferte (Teil-)Sendung erfassen bzw. zurücknehmen. Die Istmenge
+// ist immer die Summe aller Sendungen, sie wird nirgends separat gespeichert.
+async function addLieferung(orderId, { menge, datum, lieferscheinnummer }) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.lieferungen = [...(order.lieferungen || []), {
+        menge,
+        datum: datum ? new Date(datum).toISOString() : new Date().toISOString(),
+        lieferscheinnummer: lieferscheinnummer || '',
+    }];
+    renderAll();
+    await patchOrder(orderId, { lieferungen: order.lieferungen });
+}
+
+async function removeLieferung(orderId, index) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order || !order.lieferungen?.[index]) return;
+    order.lieferungen = order.lieferungen.filter((_, i) => i !== index);
+    renderAll();
+    await patchOrder(orderId, { lieferungen: order.lieferungen });
+}
+
+// Kleiner gemeinsamer Helfer - bei Fehlern synct der nächste Poll den echten Stand.
+async function patchOrder(orderId, body) {
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(body),
+        });
+    } catch (err) { /* nächster Poll korrigiert */ }
 }
 
 // Freier Kommentar je Auftrag - bewusst kein renderAll() nach dem Setzen (anders
@@ -3840,7 +3976,10 @@ function exportPlannerExcel(dbType) {
             'Auftrag': r.auftragsnummer,
             'Bestellung': r.bestellnummer || '',
             'Artikel': r.artikelnummer,
-            'Menge': r.menge,
+            'Menge (Fertigung)': r.menge,
+            'Sollmenge (Bestellung)': r.bestellmenge ?? '',
+            'Geliefert (Ist)': gelieferteMenge(r),
+            'Offen': r.bestellmenge != null ? r.bestellmenge - gelieferteMenge(r) : '',
             'Maschine': MASCHINEN.find(m => m.id === r.maschineId)?.name || 'Nicht zugewiesen',
             'Maschine 2': MASCHINEN.find(m => m.id === r.maschineId2)?.name || '',
             'Start': r.startDatum ? new Date(r.startDatum).toLocaleDateString('de-DE') : '',

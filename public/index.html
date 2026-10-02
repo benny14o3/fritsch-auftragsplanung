@@ -128,6 +128,21 @@
         .kanban-card-menge { width: 55px; padding: 1px 4px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; color: #0f172a; }
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
+        /* Sollmenge laut Bestellung + tatsächlich ausgelieferte Teilsendungen */
+        .kanban-card-mengen { margin-top: 6px; padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; color: #334155; }
+        .mengen-kopf { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+        .mengen-kopf span:first-child { flex: 1; }
+        .kanban-card-bestellmenge { width: 60px; padding: 1px 4px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; color: #0f172a; }
+        .mengen-offen { color: #b45309; font-weight: 600; }
+        .mengen-fertig { color: #15803d; font-weight: 600; }
+        .mengen-mehr { color: #b91c1c; font-weight: 600; }
+        .lieferung-zeile { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid #e2e8f0; }
+        .lieferung-remove-btn { border: none; background: none; color: #b91c1c; cursor: pointer; font-size: 13px; padding: 0 4px; }
+        .lieferung-neu { display: flex; gap: 4px; margin-top: 6px; }
+        .lieferung-neu input { padding: 2px 4px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 11px; font-family: inherit; min-width: 0; }
+        .lieferung-neu .lieferung-menge { width: 58px; }
+        .lieferung-neu .lieferung-ls { flex: 1; }
+        .lieferung-add-btn { border: 1px solid #e2e8f0; background: #f1f5f9; border-radius: 4px; font-size: 11px; padding: 2px 6px; cursor: pointer; white-space: nowrap; }
         .teilmenge-zeile { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 0; font-size: 11px; }
         .teilmenge-remove-btn { border: 1px solid #e2e8f0; border-radius: 4px; background: white; cursor: pointer; font-size: 11px; padding: 1px 6px; flex-shrink: 0; }
         .kanban-card-kommentar::placeholder { color: #cbd5e1; }
@@ -387,8 +402,12 @@
                     <input type="text" id="manualArtikelnummer">
                 </div>
                 <div class="form-group">
-                    <label>Menge</label>
+                    <label>Menge (Fertigung)</label>
                     <input type="number" id="manualMenge" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Sollmenge (Bestellung)</label>
+                    <input type="number" id="manualBestellmenge" min="1" placeholder="leer = wie Fertigungsmenge">
                 </div>
                 <div class="form-group">
                     <label>Bestellnummer</label>

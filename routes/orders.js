@@ -46,7 +46,7 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 // Für Drag & Drop und Phasenwechsel (Produktion -> Endbearbeitung -> Ausgeliefert).
 router.patch('/:orderId', authMiddleware, async (req, res) => {
   try {
-    const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang, dbType, manuellEingeplant, kommentar, menge, gesamtmenge, bearbeitungsMin, schichten, teilmengen } = req.body;
+    const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang, dbType, manuellEingeplant, kommentar, menge, gesamtmenge, bestellmenge, lieferungen, bearbeitungsMin, schichten, teilmengen } = req.body;
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     if (maschineId !== undefined) order.maschineId = maschineId;
@@ -76,6 +76,13 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     // public/app.js) - wandert im selben Umfang wie menge mit, damit sie weiter
     // der wahren Gesamtmenge entspricht.
     if (gesamtmenge !== undefined) order.gesamtmenge = gesamtmenge;
+    // Sollmenge laut Bestellung und die ausgelieferten Teilsendungen - beide
+    // unabhängig von der Fertigungsmenge (siehe models/Order.js).
+    if (bestellmenge !== undefined) order.bestellmenge = bestellmenge;
+    if (lieferungen !== undefined) {
+      order.lieferungen = lieferungen;
+      order.lieferungen.forEach(l => { if (!l.erfasstVon) l.erfasstVon = req.userId; });
+    }
     if (bearbeitungsMin !== undefined) order.bearbeitungsMin = bearbeitungsMin;
     if (schichten !== undefined) order.schichten = schichten;
     if (teilmengen !== undefined) order.teilmengen = teilmengen;
