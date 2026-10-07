@@ -137,6 +137,13 @@ const orderSchema = new mongoose.Schema({
   auftragsnummer: String,
   bestellnummer: String,
   lieferdatum: { type: Date, default: null },
+  // Nachträglich angepasster Liefertermin (nur im Archiv pflegbar): wenn der
+  // Termin nicht von uns verschoben wurde - z.B. Kunde hat verschoben oder das
+  // Rohmaterial kam zu spät - zählt für die Liefertreue dieser Termin statt des
+  // ursprünglichen. Das Original bleibt erhalten, damit nachvollziehbar ist,
+  // was geändert wurde und warum.
+  lieferterminKorrigiert: { type: Date, default: null },
+  lieferterminGrund: { type: String, default: '' },
   artikelnummer: String,
   beschreibung: String,
   komponenten: [komponenteSchema],

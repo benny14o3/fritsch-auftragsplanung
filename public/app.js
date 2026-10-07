@@ -3643,7 +3643,13 @@ function istKomponentenBereit(order) {
 
 function toDateInputValue(d) {
     if (!d) return '';
-    return new Date(d).toISOString().slice(0, 10);
+    // Bewusst die lokalen Datumsteile statt toISOString(): Termine aus dem
+    // Excel-Import liegen als deutsche Mitternacht in der Datenbank, die
+    // UTC-Umrechnung zeigte sie im Eingabefeld einen Tag zu früh an. Für
+    // Termine, die über die App gesetzt wurden (UTC-Mitternacht), kommt
+    // derselbe Tag heraus wie bisher.
+    const x = new Date(d);
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 }
 
 async function setKomponenteDatum(orderId, idx, dateStr) {
@@ -4096,14 +4102,20 @@ function tatsaechlichesLieferdatum(order) {
     return order.warenausgang ? new Date(order.warenausgang) : null;
 }
 
+// Maßgeblicher Soll-Termin für die Liefertreue: der im Archiv korrigierte, wenn
+// einer gesetzt ist - sonst der ursprüngliche aus der Bestellung.
+function sollLiefertermin(order) {
+    return order.lieferterminKorrigiert || order.lieferdatum || null;
+}
+
 // Abweichung in Werktagen-unabhängigen Kalendertagen: negativ = früher,
 // 0 = am Termin, positiv = zu spät. null, wenn sich nichts vergleichen lässt.
 function lieferAbweichungTage(order) {
-    if (!order.lieferdatum) return null;
+    const sollDatum = sollLiefertermin(order);
+    if (!sollDatum) return null;
     const ist = tatsaechlichesLieferdatum(order);
     if (!ist) return null;
-    const soll = tagesBeginn(order.lieferdatum);
-    return Math.round((tagesBeginn(ist) - soll) / 86400000);
+    return Math.round((tagesBeginn(ist) - tagesBeginn(sollDatum)) / 86400000);
 }
 
 // Liefertreue über eine Menge von Aufträgen: Anteil der Aufträge, die spätestens
@@ -4192,7 +4204,6 @@ function renderArchiv(dbType) {
             o.bestellnummer || '',
             o.bestellmenge != null ? `${o.bestellmenge} Stk` : '–',
             `${geliefert} Stk`,
-            o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–',
             istDatum ? istDatum.toLocaleDateString('de-DE') : '–',
         ];
         werte.forEach(wert => {
@@ -4200,6 +4211,36 @@ function renderArchiv(dbType) {
             td.textContent = wert;
             tr.appendChild(td);
         });
+
+        // Soll-Termin: im Archiv anpassbar, weil nicht jede Verspätung bei uns
+        // liegt (Kunde verschiebt, Material kommt zu spät). Der ursprüngliche
+        // Termin bleibt sichtbar darunter stehen.
+        const sollTd = document.createElement('td');
+        sollTd.style.whiteSpace = 'nowrap';
+        const sollInput = document.createElement('input');
+        sollInput.type = 'date';
+        sollInput.className = 'table-input archiv-soll-datum';
+        sollInput.style.width = '140px';
+        sollInput.value = toDateInputValue(sollLiefertermin(o));
+        sollInput.addEventListener('change', () => setLieferterminKorrigiert(o._id, sollInput.value));
+        sollTd.appendChild(sollInput);
+        if (o.lieferterminKorrigiert) {
+            const hinweis = document.createElement('div');
+            hinweis.className = 'archiv-soll-original';
+            hinweis.textContent = `ursprünglich ${o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–'}`;
+            hinweis.title = o.lieferterminGrund || 'Termin im Archiv angepasst';
+            const zuruecksetzen = document.createElement('button');
+            zuruecksetzen.type = 'button';
+            zuruecksetzen.className = 'archiv-soll-reset';
+            zuruecksetzen.textContent = '↩';
+            zuruecksetzen.title = 'Auf den ursprünglichen Termin zurücksetzen';
+            zuruecksetzen.addEventListener('click', () => setLieferterminKorrigiert(o._id, ''));
+            hinweis.appendChild(zuruecksetzen);
+            sollTd.appendChild(hinweis);
+        }
+        // Die Spalte "Liefertermin" steht vor "Geliefert am" - deshalb an die
+        // richtige Stelle schieben statt anzuhängen.
+        tr.insertBefore(sollTd, tr.children[6]);
 
         const abwTd = document.createElement('td');
         abwTd.textContent = abweichungText(abweichung);
@@ -4223,6 +4264,27 @@ function renderArchiv(dbType) {
         tr.appendChild(aktionen);
         tbody.appendChild(tr);
     });
+}
+
+// Soll-Liefertermin im Archiv anpassen. Leeres Feld = zurück auf den
+// ursprünglichen Termin aus der Bestellung.
+async function setLieferterminKorrigiert(orderId, dateStr) {
+    const order = archivOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.lieferterminKorrigiert = dateStr ? new Date(dateStr).toISOString() : null;
+    if (!dateStr) order.lieferterminGrund = '';
+    renderArchiv(order.dbType);
+    await patchOrder(orderId, {
+        lieferterminKorrigiert: order.lieferterminKorrigiert,
+        lieferterminGrund: order.lieferterminGrund || '',
+    });
+}
+
+async function setLieferterminGrund(orderId, grund) {
+    const order = archivOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.lieferterminGrund = grund;
+    await patchOrder(orderId, { lieferterminGrund: grund });
 }
 
 // Auftrag aus dem Archiv zurück in "Ausgeliefert" holen - z.B. wenn doch noch
@@ -4289,7 +4351,12 @@ function openArchivDetail(orderId) {
         </div>
         <div class="archiv-abschnitt">
             <h4>Lieferungen (Warenausgang)</h4>
-            <div class="archiv-zeile"><span>Liefertermin (Soll)</span><b>${o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–'}</b></div>
+            <div class="archiv-zeile"><span>Liefertermin laut Bestellung</span><b>${o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–'}</b></div>
+            ${o.lieferterminKorrigiert ? `<div class="archiv-zeile"><span>Angepasster Termin (zählt für die Liefertreue)</span><b>${new Date(o.lieferterminKorrigiert).toLocaleDateString('de-DE')}</b></div>` : ''}
+            <div class="archiv-zeile">
+                <span>Grund der Terminverschiebung</span>
+                <input type="text" id="archivGrundInput" class="table-input" style="max-width: 260px;" placeholder="z.B. Kunde hat verschoben" value="${escapeHtml(o.lieferterminGrund || '')}">
+            </div>
             <div class="archiv-zeile"><span>Geliefert am (letzte Sendung)</span><b>${tatsaechlichesLieferdatum(o)?.toLocaleDateString('de-DE') || '–'}</b></div>
             <div class="archiv-zeile"><span>Liefertreue</span><b class="${lieferAbweichungTage(o) > 0 ? 'liefertreue-spaet' : 'liefertreue-puenktlich'}">${abweichungText(lieferAbweichungTage(o))}</b></div>
             <div class="archiv-zeile"><span>Warenausgang</span><b>${o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '–'}</b></div>
@@ -4298,6 +4365,7 @@ function openArchivDetail(orderId) {
         ${o.kommentar ? `<div class="archiv-abschnitt"><h4>Kommentar</h4><div class="archiv-zeile"><span>${escapeHtml(o.kommentar)}</span></div></div>` : ''}
     `;
 
+    document.getElementById('archivGrundInput')?.addEventListener('change', (e) => setLieferterminGrund(orderId, e.target.value.trim()));
     document.getElementById('archivDetailBox').querySelectorAll('[data-archiv-bild]').forEach(btn => {
         btn.addEventListener('click', () => openKomponenteBildModal(orderId, parseInt(btn.dataset.archivBild)));
     });
@@ -4331,7 +4399,9 @@ function exportArchivExcel(dbType) {
         'Sollmenge (Bestellung)': o.bestellmenge ?? '',
         'Fertigungsmenge': o.gesamtmenge ?? o.menge ?? '',
         'Geliefert (Ist)': gelieferteMenge(o),
-        'Liefertermin (Soll)': o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '',
+        'Liefertermin laut Bestellung': o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '',
+        'Angepasster Liefertermin': o.lieferterminKorrigiert ? new Date(o.lieferterminKorrigiert).toLocaleDateString('de-DE') : '',
+        'Grund der Anpassung': o.lieferterminGrund || '',
         'Geliefert am (Ist)': tatsaechlichesLieferdatum(o)?.toLocaleDateString('de-DE') || '',
         'Abweichung (Tage)': lieferAbweichungTage(o) ?? '',
         'Liefertreue': lieferAbweichungTage(o) === null ? 'nicht bewertbar' : (lieferAbweichungTage(o) <= 0 ? 'pünktlich' : 'zu spät'),

@@ -106,6 +106,10 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     if (phase !== undefined) order.phase = phase;
     if (warenausgang !== undefined) order.warenausgang = warenausgang;
     if (req.body.archiviertAm !== undefined) order.archiviertAm = req.body.archiviertAm;
+    // Korrigierter Liefertermin samt Begründung (siehe models/Order.js) - das
+    // ursprüngliche lieferdatum bleibt davon unberührt.
+    if (req.body.lieferterminKorrigiert !== undefined) order.lieferterminKorrigiert = req.body.lieferterminKorrigiert;
+    if (req.body.lieferterminGrund !== undefined) order.lieferterminGrund = req.body.lieferterminGrund;
     if (dbType !== undefined) order.dbType = dbType;
     if (manuellEingeplant !== undefined) order.manuellEingeplant = manuellEingeplant;
     if (kommentar !== undefined) order.kommentar = kommentar;
