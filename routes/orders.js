@@ -108,6 +108,10 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     if (req.body.archiviertAm !== undefined) order.archiviertAm = req.body.archiviertAm;
     // Korrigierter Liefertermin samt Begründung (siehe models/Order.js) - das
     // ursprüngliche lieferdatum bleibt davon unberührt.
+    // Nur gesetzt, wenn ein Auftrag bisher gar keinen Termin hatte - sonst
+    // bleibt der Termin aus der Bestellung unangetastet und die Abweichung
+    // wandert nach lieferterminKorrigiert.
+    if (req.body.lieferdatum !== undefined) order.lieferdatum = req.body.lieferdatum;
     if (req.body.lieferterminKorrigiert !== undefined) order.lieferterminKorrigiert = req.body.lieferterminKorrigiert;
     if (req.body.lieferterminGrund !== undefined) order.lieferterminGrund = req.body.lieferterminGrund;
     if (dbType !== undefined) order.dbType = dbType;

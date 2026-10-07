@@ -125,6 +125,8 @@
         .kanban-card-desc { color: #475569; margin-bottom: 4px; }
         .kanban-card-parallel { color: #7c3aed; margin-bottom: 4px; }
         .kanban-card-meta { color: #64748b; }
+        .kanban-card-liefertermin { padding: 1px 4px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 11px; font-family: inherit; color: #0f172a; }
+        .kanban-card-termin-original { color: #b45309; }
         .kanban-card-menge { width: 55px; padding: 1px 4px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; color: #0f172a; }
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
@@ -405,6 +407,31 @@
                     <input type="file" id="plannerOrders" accept=".xlsx,.xls,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
                 </label>
             </div>
+            <div id="importVorschau" class="hidden card">
+                <h3>Vor dem Import prüfen</h3>
+                <p style="color: #64748b; margin-bottom: 16px;">Der Liefertermin aus der Bestellung steht links. Rechts kann der Termin eingetragen werden, den ihr dem Kunden <b>bestätigt</b> habt - danach wird eingeplant und die Liefertreue später daran gemessen. Ohne Änderung gilt der Termin aus der Bestellung.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Auftrag</th>
+                                <th>Artikel</th>
+                                <th>Bezeichnung</th>
+                                <th>Menge</th>
+                                <th>Liefertermin laut Bestellung</th>
+                                <th>Bestätigter Liefertermin</th>
+                            </tr>
+                        </thead>
+                        <tbody id="importVorschauTable"></tbody>
+                    </table>
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 16px; align-items: center;">
+                    <button class="btn btn-primary" id="importStartBtn" style="width: auto;">Importieren und einplanen</button>
+                    <button class="btn btn-secondary" id="importAbbrechenBtn" style="width: auto;">Abbrechen</button>
+                    <span id="importVorschauNote" style="font-size: 13px; color: #64748b;"></span>
+                </div>
+            </div>
+
             <div id="plannerDoneNote" class="hidden card">
                 <h3>✅ Plan erstellt</h3>
                 <p style="color: #64748b; margin-bottom: 16px;">Die Aufträge wurden eingeplant und für alle sichtbar gespeichert.</p>

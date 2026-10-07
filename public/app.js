@@ -825,9 +825,73 @@ function exportConverterPdfExcel() {
 }
 document.getElementById('exportConverterPdfBtn')?.addEventListener('click', exportConverterPdfExcel);
 
+// Import in zwei Schritten: erst die Vorschau, in der je Auftrag der bestätigte
+// Liefertermin eingetragen werden kann (oft weicht er von dem der Bestellung
+// ab), dann einplanen und speichern.
+let importZeilen = [];
+
 document.getElementById('plannerOrders')?.addEventListener('change', async (e) => {
+    if (!e.target.files[0]) return;
     const rows = await parseExcel(e.target.files[0]);
-    planMachines(rows);
+    importZeilen = parseImportZeilen(rows);
+    document.getElementById('plannerDoneNote').classList.add('hidden');
+    renderImportVorschau();
+    e.target.value = ''; // dieselbe Datei kann danach erneut gewählt werden
+});
+
+function renderImportVorschau() {
+    const karte = document.getElementById('importVorschau');
+    const tbody = document.getElementById('importVorschauTable');
+    if (!karte || !tbody) return;
+    karte.classList.toggle('hidden', importZeilen.length === 0);
+    document.getElementById('importVorschauNote').textContent =
+        `${importZeilen.length} ${importZeilen.length === 1 ? 'Auftrag' : 'Aufträge'} aus der Datei`;
+
+    tbody.innerHTML = '';
+    importZeilen.forEach((o, idx) => {
+        const tr = document.createElement('tr');
+        [o.auftragsnummer || '', o.artikelnummer || '', o.beschreibung || '', `${o.menge} Stk`,
+         o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–'].forEach(wert => {
+            const td = document.createElement('td');
+            td.textContent = wert;
+            tr.appendChild(td);
+        });
+        const td = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.className = 'table-input';
+        input.style.width = '150px';
+        input.value = toDateInputValue(sollLiefertermin(o));
+        input.addEventListener('change', () => {
+            const neu = input.value ? new Date(input.value) : null;
+            // Nur merken, wenn der bestätigte Termin wirklich abweicht - sonst
+            // stünde überall "bestätigt", obwohl nichts geändert wurde.
+            const gleich = neu && o.lieferdatum && tagesBeginn(neu).getTime() === tagesBeginn(o.lieferdatum).getTime();
+            o.lieferterminKorrigiert = (!neu || gleich) ? null : neu.toISOString();
+            if (o.lieferterminKorrigiert) o.lieferterminGrund = 'Bei der Auftragsbestätigung abweichend bestätigt';
+            renderImportVorschau();
+        });
+        td.appendChild(input);
+        if (o.lieferterminKorrigiert) {
+            const hinweis = document.createElement('div');
+            hinweis.className = 'archiv-soll-original';
+            hinweis.textContent = 'abweichend bestätigt';
+            td.appendChild(hinweis);
+        }
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+    });
+}
+
+document.getElementById('importStartBtn')?.addEventListener('click', () => {
+    if (importZeilen.length === 0) return;
+    document.getElementById('importVorschau').classList.add('hidden');
+    planMachines(importZeilen);
+    importZeilen = [];
+});
+document.getElementById('importAbbrechenBtn')?.addEventListener('click', () => {
+    importZeilen = [];
+    renderImportVorschau();
 });
 
 async function saveDatabase(type, file, statusEl) {
@@ -1943,14 +2007,8 @@ let draggedTeilIndex = -1;
 let isDragging = false;
 let boardPollTimer = null;
 
-function planMachines(orders) {
-    // Bestehende, bereits eingeplante Aufträge bleiben erhalten (siehe
-    // saveOrdersToBackend) - die neue Charge wird deshalb hinter deren
-    // tatsächlichem Ende eingereiht, statt jede Maschine ab "heute" neu zu
-    // verplanen (das würde bestehende Belegungen überbuchen/überschreiben).
-    const naechsterFreierTag = {};
-    MASCHINEN.forEach(m => naechsterFreierTag[m.id] = getMachineNextFree(m.id));
-
+// Liest die Excel-Zeilen in Auftragsobjekte ein - noch ohne Maschine und Termin.
+function parseImportZeilen(orders) {
     const columns = Object.keys(orders[0] || {});
     const artikelCol = findColumn(columns, 'artikel');
     const auftragsCol = findColumn(columns, 'auftrag');
@@ -1996,13 +2054,28 @@ function planMachines(orders) {
         };
     });
 
+    return parsed;
+}
+
+// Einplanen und speichern - getrennt vom Parsen, damit zwischendurch die
+// Vorschau stehen kann, in der der bestätigte Liefertermin eingetragen wird.
+function planMachines(parsed) {
+    // Bestehende, bereits eingeplante Aufträge bleiben erhalten (siehe
+    // saveOrdersToBackend) - die neue Charge wird deshalb hinter deren
+    // tatsächlichem Ende eingereiht, statt jede Maschine ab "heute" neu zu
+    // verplanen (das würde bestehende Belegungen überbuchen/überschreiben).
+    const naechsterFreierTag = {};
+    MASCHINEN.forEach(m => naechsterFreierTag[m.id] = getMachineNextFree(m.id));
+
     // Aufträge mit früherem Liefertermin zuerst einplanen (dringendere zuerst) -
-    // wer keinen Liefertermin hat, kommt ans Ende.
+    // maßgeblich ist der bestätigte Termin, wer keinen hat, kommt ans Ende.
     parsed.sort((a, b) => {
-        if (!a.lieferdatum && !b.lieferdatum) return 0;
-        if (!a.lieferdatum) return 1;
-        if (!b.lieferdatum) return -1;
-        return new Date(a.lieferdatum) - new Date(b.lieferdatum);
+        const ta = sollLiefertermin(a);
+        const tb = sollLiefertermin(b);
+        if (!ta && !tb) return 0;
+        if (!ta) return 1;
+        if (!tb) return -1;
+        return new Date(ta) - new Date(tb);
     });
 
     const computed = parsed.map(o => {
@@ -2204,7 +2277,13 @@ function buildCardElement(order, { spalte = null } = {}) {
 
     const bestellTeile = [];
     if (order.bestellnummer) bestellTeile.push(`Bestellung ${escapeHtml(order.bestellnummer)}`);
-    if (order.lieferdatum) bestellTeile.push(`Liefertermin ${formatDateShort(order.lieferdatum)}`);
+    // Liefertermin direkt auf der Karte änderbar - oft wird dem Kunden ein
+    // anderer Termin bestätigt als in der Bestellung stand. Der Termin aus der
+    // Bestellung bleibt erhalten (siehe lieferterminKorrigiert).
+    bestellTeile.push(`Liefertermin <input type="date" class="kanban-card-liefertermin" value="${toDateInputValue(sollLiefertermin(order))}">`);
+    if (order.lieferterminKorrigiert && order.lieferdatum) {
+        bestellTeile.push(`<span class="kanban-card-termin-original" title="${escapeHtml(order.lieferterminGrund || 'abweichend bestätigt')}">laut Bestellung ${formatDateShort(order.lieferdatum)}</span>`);
+    }
     const bestellung = bestellTeile.length ? `<div class="kanban-card-bestellung">🧾 ${bestellTeile.join(' · ')}</div>` : '';
 
     let parallel = '';
@@ -2345,6 +2424,17 @@ function buildCardElement(order, { spalte = null } = {}) {
         mengeInput.addEventListener('change', (e) => {
             e.stopPropagation();
             setMenge(order._id, parseInt(mengeInput.value));
+        });
+    }
+
+    const lieferterminInput = card.querySelector('.kanban-card-liefertermin');
+    if (lieferterminInput) {
+        lieferterminInput.draggable = false;
+        lieferterminInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        lieferterminInput.addEventListener('click', (e) => e.stopPropagation());
+        lieferterminInput.addEventListener('change', (e) => {
+            e.stopPropagation();
+            setBestaetigtenLiefertermin(order._id, lieferterminInput.value);
         });
     }
 
@@ -2522,10 +2612,12 @@ function renderFehlendeKomponenten(produktionOrders, suffix) {
     const offene = produktionOrders
         .filter(o => !istKomponentenBereit(o))
         .sort((a, b) => {
-            if (!a.lieferdatum && !b.lieferdatum) return 0;
-            if (!a.lieferdatum) return 1;
-            if (!b.lieferdatum) return -1;
-            return new Date(a.lieferdatum) - new Date(b.lieferdatum);
+            const ta = sollLiefertermin(a);
+            const tb = sollLiefertermin(b);
+            if (!ta && !tb) return 0;
+            if (!ta) return 1;
+            if (!tb) return -1;
+            return new Date(ta) - new Date(tb);
         });
 
     tbody.innerHTML = '';
@@ -2536,7 +2628,7 @@ function renderFehlendeKomponenten(produktionOrders, suffix) {
 
     offene.forEach(order => {
         const tr = document.createElement('tr');
-        [order.artikelnummer, order.auftragsnummer, order.beschreibung, fehlendeKomponentenText(order), order.lieferdatum ? formatDateShort(order.lieferdatum) : ''].forEach(val => {
+        [order.artikelnummer, order.auftragsnummer, order.beschreibung, fehlendeKomponentenText(order), sollLiefertermin(order) ? formatDateShort(sollLiefertermin(order)) : ''].forEach(val => {
             const td = document.createElement('td');
             td.textContent = val;
             tr.appendChild(td);
@@ -2577,10 +2669,12 @@ async function sortBoardByLiefertermin(dbType) {
         const cards = produktionOrders
             .filter(o => spalte.id === null ? !o.maschineId : (o.maschineId === spalte.id || o.maschineId2 === spalte.id))
             .sort((a, b) => {
-                if (!a.lieferdatum && !b.lieferdatum) return 0;
-                if (!a.lieferdatum) return 1;
-                if (!b.lieferdatum) return -1;
-                return new Date(a.lieferdatum) - new Date(b.lieferdatum);
+                const ta = sollLiefertermin(a);
+                const tb = sollLiefertermin(b);
+                if (!ta && !tb) return 0;
+                if (!ta) return 1;
+                if (!tb) return -1;
+                return new Date(ta) - new Date(tb);
             });
         cards.forEach((order, idx) => {
             if (order.position !== idx) aenderungen.push(order);
@@ -2937,9 +3031,9 @@ function renderGantt(orders, dbType) {
             const bar = document.createElement('div');
             const hatKonflikt = konfliktSchluessel.has(abschnittSchluessel(a));
             bar.className = `gantt-bar card-${a.status}${fehlendeKomponenten ? ' card-manuell' : ''}${hatKonflikt ? ' gantt-bar-konflikt' : ''}`;
-            const lieferwoche = formatLieferwoche(o.lieferdatum);
+            const lieferwoche = formatLieferwoche(sollLiefertermin(o));
             // Produktion endet nach dem Liefertermin - im Zeitplan als Warnung markieren.
-            const zuSpaet = o.lieferdatum && ende > new Date(o.lieferdatum);
+            const zuSpaet = sollLiefertermin(o) && ende > new Date(sollLiefertermin(o));
             // Kompakt auf max. 3 einzeilige Zeilen (statt 4 teils zweizeiligen) -
             // Artikel+Auftrag zusammen, Bezeichnung einzeilig mit Ellipsis, Liefer-
             // woche + evtl. Warnungen in einer Statuszeile. Damit reicht eine
@@ -2955,7 +3049,7 @@ function renderGantt(orders, dbType) {
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
                 ${statusTeile.length ? `<div class="gantt-bar-zelle gantt-bar-status${zuSpaet ? ' spaet' : ''}">${statusTeile.join(' · ')}</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\nSoll (Bestellung) ${o.bestellmenge ?? '–'} Stk · geliefert ${gelieferteMenge(o)} Stk\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(o.lieferdatum)} (${lieferwoche})` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\nSoll (Bestellung) ${o.bestellmenge ?? '–'} Stk · geliefert ${gelieferteMenge(o)} Stk\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(sollLiefertermin(o))} (${lieferwoche})${o.lieferterminKorrigiert ? ' · bestätigt, laut Bestellung ' + formatDateShort(o.lieferdatum) : ''}` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}\nZiehen zum Verschieben`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
             bar.draggable = true;
@@ -4269,19 +4363,39 @@ function renderArchiv(dbType) {
 // Soll-Liefertermin im Archiv anpassen. Leeres Feld = zurück auf den
 // ursprünglichen Termin aus der Bestellung.
 async function setLieferterminKorrigiert(orderId, dateStr) {
-    const order = archivOrders.find(o => o._id === orderId);
+    const order = findeAuftrag(orderId);
     if (!order) return;
     order.lieferterminKorrigiert = dateStr ? new Date(dateStr).toISOString() : null;
     if (!dateStr) order.lieferterminGrund = '';
-    renderArchiv(order.dbType);
+    if (order.phase === 'archiv') renderArchiv(order.dbType); else renderAll();
     await patchOrder(orderId, {
         lieferterminKorrigiert: order.lieferterminKorrigiert,
         lieferterminGrund: order.lieferterminGrund || '',
     });
 }
 
+// Von der Kanban-Karte aus: ein Termin, der dem aus der Bestellung entspricht,
+// gilt nicht als abweichend bestätigt - sonst stünde überall ein Hinweis,
+// obwohl sich nichts geändert hat.
+async function setBestaetigtenLiefertermin(orderId, dateStr) {
+    const order = findeAuftrag(orderId);
+    if (!order) return;
+    const neu = dateStr ? new Date(dateStr) : null;
+    const gleichWieBestellung = neu && order.lieferdatum
+        && tagesBeginn(neu).getTime() === tagesBeginn(order.lieferdatum).getTime();
+    if (!order.lieferdatum && neu) {
+        // Ohne Termin aus der Bestellung ist der eingetragene Termin der Termin.
+        order.lieferdatum = neu.toISOString();
+        order.lieferterminKorrigiert = null;
+        renderAll();
+        await patchOrder(orderId, { lieferdatum: order.lieferdatum, lieferterminKorrigiert: null });
+        return;
+    }
+    await setLieferterminKorrigiert(orderId, gleichWieBestellung ? '' : dateStr);
+}
+
 async function setLieferterminGrund(orderId, grund) {
-    const order = archivOrders.find(o => o._id === orderId);
+    const order = findeAuftrag(orderId);
     if (!order) return;
     order.lieferterminGrund = grund;
     await patchOrder(orderId, { lieferterminGrund: grund });
