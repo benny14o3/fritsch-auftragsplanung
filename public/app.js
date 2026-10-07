@@ -130,6 +130,9 @@ const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases'];
 // Formgebung (Elastomer/Maplan) und CNC (PTFE) sind komplett getrennte Bereiche -
 // eigenes Board, eigene Endbearbeitung, eigenes Ausgeliefert je Bereich.
 const BOARD_PAGES = ['boardFormgebung', 'boardCnc', 'endbearbeitungFormgebung', 'endbearbeitungCnc', 'ausgeliefertFormgebung', 'ausgeliefertCnc'];
+// Das Archiv hängt nicht am 6-Sekunden-Poll - es wird beim Öffnen der Seite
+// einmal geladen (siehe fetchArchiv).
+const ARCHIV_PAGES = { archivFormgebung: 'Elastomer', archivCnc: 'PTFE' };
 const DBTYPE_SUFFIX = { Elastomer: 'Formgebung', PTFE: 'Cnc' };
 
 function showPage(page) {
@@ -143,6 +146,7 @@ function showPage(page) {
     });
 
     if (BOARD_PAGES.includes(page)) loadExistingBoard();
+    if (ARCHIV_PAGES[page]) fetchArchiv(ARCHIV_PAGES[page]);
     if (page === 'databases') fetchWerker();
 }
 
@@ -2998,6 +3002,7 @@ function renderAusgeliefert(dbType) {
         waInput.addEventListener('change', (e) => setWarenausgang(order._id, e.target.value));
         card.appendChild(wa);
 
+        addCardAction(card, '🗄 Ins Archiv', () => movePhase(order._id, 'archiv'), 'primary');
         addCardAction(card, '↩ Zurück zur Endbearbeitung', () => movePhase(order._id, 'endbearbeitung'));
         addDeleteAction(card, order._id);
         liste.appendChild(card);
@@ -3012,6 +3017,15 @@ async function movePhase(orderId, phase) {
     if (phase === 'ausgeliefert' && !order.warenausgang) {
         order.warenausgang = new Date().toISOString();
         patchBody.warenausgang = order.warenausgang;
+    }
+    // Archivierte Aufträge kommen beim nächsten Poll nicht mehr mit (die Route
+    // blendet das Archiv aus) - deshalb hier direkt aus der Liste nehmen, sonst
+    // stünden sie bis zum nächsten Laden doppelt da.
+    if (phase === 'archiv') {
+        order.archiviertAm = new Date().toISOString();
+        patchBody.archiviertAm = order.archiviertAm;
+        boardOrders = boardOrders.filter(o => o._id !== orderId);
+        archivOrders = [order, ...archivOrders.filter(o => o._id !== orderId)];
     }
     renderAll();
 
@@ -3805,7 +3819,7 @@ async function uploadKomponenteBild(orderId, idx, file) {
 }
 
 async function openKomponenteBildModal(orderId, idx) {
-    const order = boardOrders.find(o => o._id === orderId);
+    const order = findeAuftrag(orderId);
     const komponente = order?.komponenten?.[idx];
     if (!komponente?.bild) return;
     komponenteBildKontext = { orderId, idx };
@@ -3813,6 +3827,8 @@ async function openKomponenteBildModal(orderId, idx) {
     document.getElementById('komponenteBildTitel').textContent = `Foto Wareneingang · ${label}`;
     document.getElementById('komponenteBildSub').textContent = 'Wird geladen...';
     document.getElementById('komponenteBildBox').innerHTML = '';
+    // Im Archiv ist der Auftrag abgeschlossen - Fotos dort nur ansehen, nicht löschen.
+    document.getElementById('komponenteBildRemoveBtn').classList.toggle('hidden', order.phase === 'archiv');
     document.getElementById('komponenteBildModal').classList.remove('hidden');
 
     try {
@@ -3967,6 +3983,206 @@ async function removeTeilmenge(orderId, teilIndex) {
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
     }
+}
+
+// --- Archiv ---
+// Endablage für abgeschlossene Aufträge: tabellarisch statt als Karten, aber
+// mit vollem Zugriff auf Wareneingänge (Datum, Charge, Foto), Lieferungen und
+// Warenausgang. Wird nicht gepollt, sondern beim Öffnen der Seite geladen.
+
+let archivOrders = [];
+let archivSuche = { Formgebung: '', Cnc: '' };
+
+async function fetchArchiv(dbType) {
+    try {
+        const res = await fetch(`${API_URL}/orders?phase=archiv`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        archivOrders = await res.json();
+        renderArchiv(dbType);
+    } catch (err) { /* beim nächsten Öffnen erneut versuchen */ }
+}
+
+function archivGefiltert(dbType) {
+    const suffix = DBTYPE_SUFFIX[dbType];
+    const suche = (archivSuche[suffix] || '').trim().toLowerCase();
+    return archivOrders
+        .filter(o => o.dbType === dbType)
+        .filter(o => {
+            if (!suche) return true;
+            // Charge und Lieferscheinnummer bewusst mitdurchsuchen - danach wird
+            // bei Rückfragen aus der Qualitätssicherung am häufigsten gesucht.
+            const felder = [o.auftragsnummer, o.artikelnummer, o.beschreibung, o.bestellnummer,
+                ...(o.komponenten || []).map(k => k.charge),
+                ...(o.lieferungen || []).map(l => l.lieferscheinnummer)];
+            return felder.filter(Boolean).some(f => String(f).toLowerCase().includes(suche));
+        })
+        .sort((a, b) => new Date(b.archiviertAm || b.warenausgang || 0) - new Date(a.archiviertAm || a.warenausgang || 0));
+}
+
+function renderArchiv(dbType) {
+    const suffix = DBTYPE_SUFFIX[dbType];
+    const tbody = document.getElementById('archivTable' + suffix);
+    if (!tbody) return;
+    const zeilen = archivGefiltert(dbType);
+    const anzahl = document.getElementById('archivAnzahl' + suffix);
+    const gesamt = archivOrders.filter(o => o.dbType === dbType).length;
+    if (anzahl) anzahl.textContent = zeilen.length === gesamt
+        ? `${gesamt} ${gesamt === 1 ? 'Auftrag' : 'Aufträge'} im Archiv`
+        : `${zeilen.length} von ${gesamt} Aufträgen`;
+
+    tbody.innerHTML = '';
+    if (zeilen.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="color: #64748b;">${gesamt === 0 ? 'Noch nichts archiviert. Aufträge wandern über "Ausgeliefert" ins Archiv.' : 'Kein Treffer zur Suche.'}</td></tr>`;
+        return;
+    }
+    zeilen.forEach(o => {
+        const tr = document.createElement('tr');
+        const geliefert = gelieferteMenge(o);
+        const werte = [
+            o.auftragsnummer || '',
+            o.artikelnummer || '',
+            o.beschreibung || '',
+            o.bestellnummer || '',
+            o.bestellmenge != null ? `${o.bestellmenge} Stk` : '–',
+            `${geliefert} Stk`,
+            o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '–',
+            o.archiviertAm ? new Date(o.archiviertAm).toLocaleDateString('de-DE') : '–',
+        ];
+        werte.forEach(wert => {
+            const td = document.createElement('td');
+            td.textContent = wert;
+            tr.appendChild(td);
+        });
+        const aktionen = document.createElement('td');
+        aktionen.className = 'table-actions';
+        const detailBtn = document.createElement('button');
+        detailBtn.textContent = '🔍 Details';
+        detailBtn.addEventListener('click', () => openArchivDetail(o._id));
+        aktionen.appendChild(detailBtn);
+        const zurueckBtn = document.createElement('button');
+        zurueckBtn.textContent = '↩';
+        zurueckBtn.title = 'Zurück zu Ausgeliefert';
+        zurueckBtn.addEventListener('click', () => archivZurueckholen(o._id));
+        aktionen.appendChild(zurueckBtn);
+        tr.appendChild(aktionen);
+        tbody.appendChild(tr);
+    });
+}
+
+// Auftrag aus dem Archiv zurück in "Ausgeliefert" holen - z.B. wenn doch noch
+// eine Nachlieferung kommt.
+async function archivZurueckholen(orderId) {
+    const order = archivOrders.find(o => o._id === orderId);
+    if (!order) return;
+    order.phase = 'ausgeliefert';
+    order.archiviertAm = null;
+    archivOrders = archivOrders.filter(o => o._id !== orderId);
+    boardOrders = [...boardOrders, order];
+    renderArchiv(order.dbType);
+    renderAll();
+    await patchOrder(orderId, { phase: 'ausgeliefert', archiviertAm: null });
+}
+
+// Auftrag aus Board ODER Archiv - das Foto-Fenster und die Detailansicht
+// müssen beide Quellen kennen.
+function findeAuftrag(orderId) {
+    return boardOrders.find(o => o._id === orderId) || archivOrders.find(o => o._id === orderId);
+}
+
+function openArchivDetail(orderId) {
+    const o = findeAuftrag(orderId);
+    if (!o) return;
+    document.getElementById('archivDetailTitel').textContent = `${o.artikelnummer || ''} · Auftrag ${o.auftragsnummer || ''}`;
+    document.getElementById('archivDetailSub').textContent = [
+        o.beschreibung,
+        o.bestellnummer ? `Bestellung ${o.bestellnummer}` : '',
+        o.lieferdatum ? `Liefertermin ${new Date(o.lieferdatum).toLocaleDateString('de-DE')}` : '',
+    ].filter(Boolean).join(' · ');
+
+    const komponenten = (o.komponenten || []).map((k, idx) => {
+        const label = k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung}` : (k.bezeichnung || '');
+        const meta = [
+            k.wareneingang ? `Wareneingang ${new Date(k.wareneingang).toLocaleDateString('de-DE')}` : 'kein Wareneingang',
+            k.charge ? `Charge ${escapeHtml(k.charge)}` : '',
+        ].filter(Boolean).join(' · ');
+        const bild = k.bild
+            ? `<button type="button" class="archiv-bild-btn" data-archiv-bild="${idx}">🖼️ Foto</button>`
+            : '';
+        return `<div class="archiv-zeile">
+            <span>${escapeHtml(label)}<div class="archiv-zeile-meta">${meta}</div></span>
+            ${bild}
+        </div>`;
+    }).join('');
+
+    const lieferungen = (o.lieferungen || []).map(l => `
+        <div class="archiv-zeile">
+            <span>📦 ${l.menge} Stk<div class="archiv-zeile-meta">${new Date(l.datum).toLocaleDateString('de-DE')}${l.lieferscheinnummer ? ` · Lieferschein ${escapeHtml(l.lieferscheinnummer)}` : ''}</div></span>
+        </div>`).join('');
+
+    const geliefert = gelieferteMenge(o);
+    document.getElementById('archivDetailBox').innerHTML = `
+        <div class="archiv-abschnitt">
+            <h4>Mengen</h4>
+            <div class="archiv-zeile"><span>Sollmenge (Bestellung)</span><b>${o.bestellmenge != null ? o.bestellmenge + ' Stk' : '–'}</b></div>
+            <div class="archiv-zeile"><span>Fertigungsmenge</span><b>${o.gesamtmenge ?? o.menge ?? '–'} Stk</b></div>
+            <div class="archiv-zeile"><span>Tatsächlich geliefert</span><b>${geliefert} Stk</b></div>
+        </div>
+        <div class="archiv-abschnitt">
+            <h4>Wareneingänge</h4>
+            ${komponenten || '<div class="archiv-leer">Keine Komponenten hinterlegt.</div>'}
+        </div>
+        <div class="archiv-abschnitt">
+            <h4>Lieferungen (Warenausgang)</h4>
+            <div class="archiv-zeile"><span>Warenausgang</span><b>${o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '–'}</b></div>
+            ${lieferungen || '<div class="archiv-leer">Keine Teilsendungen erfasst.</div>'}
+        </div>
+        ${o.kommentar ? `<div class="archiv-abschnitt"><h4>Kommentar</h4><div class="archiv-zeile"><span>${escapeHtml(o.kommentar)}</span></div></div>` : ''}
+    `;
+
+    document.getElementById('archivDetailBox').querySelectorAll('[data-archiv-bild]').forEach(btn => {
+        btn.addEventListener('click', () => openKomponenteBildModal(orderId, parseInt(btn.dataset.archivBild)));
+    });
+    document.getElementById('archivDetailModal').classList.remove('hidden');
+}
+
+function closeArchivDetail() {
+    document.getElementById('archivDetailModal').classList.add('hidden');
+}
+
+document.getElementById('archivDetailCloseBtn')?.addEventListener('click', closeArchivDetail);
+document.getElementById('archivDetailModal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'archivDetailModal') closeArchivDetail();
+});
+document.querySelectorAll('.archiv-suche').forEach(input => {
+    input.addEventListener('input', () => {
+        archivSuche[input.dataset.suffix] = input.value;
+        renderArchiv(input.dataset.suffix === 'Formgebung' ? 'Elastomer' : 'PTFE');
+    });
+});
+document.querySelectorAll('.archiv-export-btn').forEach(btn => {
+    btn.addEventListener('click', () => exportArchivExcel(btn.dataset.suffix === 'Formgebung' ? 'Elastomer' : 'PTFE'));
+});
+
+function exportArchivExcel(dbType) {
+    const data = archivGefiltert(dbType).map(o => ({
+        'Auftrag': o.auftragsnummer || '',
+        'Artikel': o.artikelnummer || '',
+        'Bezeichnung': o.beschreibung || '',
+        'Bestellung': o.bestellnummer || '',
+        'Sollmenge (Bestellung)': o.bestellmenge ?? '',
+        'Fertigungsmenge': o.gesamtmenge ?? o.menge ?? '',
+        'Geliefert (Ist)': gelieferteMenge(o),
+        'Warenausgang': o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '',
+        'Archiviert': o.archiviertAm ? new Date(o.archiviertAm).toLocaleDateString('de-DE') : '',
+        'Chargen': (o.komponenten || []).map(k => k.charge).filter(Boolean).join(', '),
+        'Lieferscheine': (o.lieferungen || []).map(l => l.lieferscheinnummer).filter(Boolean).join(', '),
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Archiv');
+    XLSX.writeFile(wb, dbType === 'Elastomer' ? 'Archiv-Formgebung.xlsx' : 'Archiv-CNC.xlsx');
 }
 
 function exportPlannerExcel(dbType) {

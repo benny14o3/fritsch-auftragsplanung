@@ -11,7 +11,13 @@ const router = express.Router();
 // Artikels über alle Phasen hinweg, für den Export in der Artikelverwaltung).
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const filter = req.query.artikelnummer ? { artikelnummer: req.query.artikelnummer } : {};
+    // Standardmäßig ohne Archiv: die Board-Seiten pollen diese Route alle 6
+    // Sekunden, das Archiv wächst dauerhaft und wird nur auf Anfrage geladen
+    // (?phase=archiv). Der Artikel-Filter (FSK-Historie) liefert weiterhin alle
+    // Phasen, sonst fehlte die Historie archivierter Aufträge.
+    let filter = { phase: { $ne: 'archiv' } };
+    if (req.query.artikelnummer) filter = { artikelnummer: req.query.artikelnummer };
+    else if (req.query.phase) filter = { phase: req.query.phase };
     // Bilddaten (base64) hier bewusst ausblenden - dieser Endpunkt wird alle 6s
     // fürs Board gepollt, Dateiname/Datum reichen dafür als Vorschau-Hinweis.
     // Der eigentliche Bildinhalt kommt über die eigene Bild-Route (s.u.).
@@ -65,6 +71,7 @@ router.patch('/:orderId', authMiddleware, async (req, res) => {
     }
     if (phase !== undefined) order.phase = phase;
     if (warenausgang !== undefined) order.warenausgang = warenausgang;
+    if (req.body.archiviertAm !== undefined) order.archiviertAm = req.body.archiviertAm;
     if (dbType !== undefined) order.dbType = dbType;
     if (manuellEingeplant !== undefined) order.manuellEingeplant = manuellEingeplant;
     if (kommentar !== undefined) order.kommentar = kommentar;

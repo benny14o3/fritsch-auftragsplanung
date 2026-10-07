@@ -162,8 +162,12 @@ const orderSchema = new mongoose.Schema({
   bearbeitungsMin: Number,
   schichten: Number,
   status: { type: String, enum: ['ausstehend', 'geplant', 'ueberlastet'], default: 'ausstehend' },
-  phase: { type: String, enum: ['produktion', 'endbearbeitung', 'ausgeliefert'], default: 'produktion' },
+  // 'archiv' ist die Endablage: abgeschlossene Aufträge verschwinden aus den
+  // täglich gepollten Listen, bleiben aber mit Wareneingängen, Chargen, Fotos,
+  // Lieferungen und Warenausgang vollständig abrufbar (siehe Archiv-Seite).
+  phase: { type: String, enum: ['produktion', 'endbearbeitung', 'ausgeliefert', 'archiv'], default: 'produktion' },
   warenausgang: { type: Date, default: null },
+  archiviertAm: { type: Date, default: null },
   position: { type: Number, default: 0 },
   // Manuell in den Zeitplan aufgenommen, obwohl noch nicht alle Komponenten da
   // sind (siehe istKomponentenBereit) - der Balken erscheint dann gelb statt
