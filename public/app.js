@@ -4087,6 +4087,79 @@ function archivGefiltert(dbType) {
         .sort((a, b) => new Date(b.archiviertAm || b.warenausgang || 0) - new Date(a.archiviertAm || a.warenausgang || 0));
 }
 
+// Tatsächliches Lieferdatum eines Auftrags: die LETZTE erfasste Teilsendung -
+// erst dann ist der Auftrag vollständig draußen. Ohne erfasste Sendungen gilt
+// das Warenausgangsdatum.
+function tatsaechlichesLieferdatum(order) {
+    const sendungen = (order.lieferungen || []).map(l => new Date(l.datum)).filter(d => !isNaN(d));
+    if (sendungen.length > 0) return new Date(Math.max(...sendungen.map(d => d.getTime())));
+    return order.warenausgang ? new Date(order.warenausgang) : null;
+}
+
+// Abweichung in Werktagen-unabhängigen Kalendertagen: negativ = früher,
+// 0 = am Termin, positiv = zu spät. null, wenn sich nichts vergleichen lässt.
+function lieferAbweichungTage(order) {
+    if (!order.lieferdatum) return null;
+    const ist = tatsaechlichesLieferdatum(order);
+    if (!ist) return null;
+    const soll = tagesBeginn(order.lieferdatum);
+    return Math.round((tagesBeginn(ist) - soll) / 86400000);
+}
+
+// Liefertreue über eine Menge von Aufträgen: Anteil der Aufträge, die spätestens
+// am vereinbarten Liefertermin draußen waren. Aufträge ohne Liefertermin oder
+// ohne Lieferdatum zählen nicht mit, werden aber ausgewiesen - sonst würde die
+// Quote je nach Datenpflege besser oder schlechter aussehen, als sie ist.
+function berechneLiefertreue(orders) {
+    const bewertbar = [];
+    let ohneDaten = 0;
+    orders.forEach(o => {
+        const abw = lieferAbweichungTage(o);
+        if (abw === null) ohneDaten++;
+        else bewertbar.push(abw);
+    });
+    const puenktlich = bewertbar.filter(a => a <= 0).length;
+    const verspaetet = bewertbar.filter(a => a > 0);
+    return {
+        bewertbar: bewertbar.length,
+        puenktlich,
+        verspaetet: verspaetet.length,
+        ohneDaten,
+        prozent: bewertbar.length ? (puenktlich / bewertbar.length) * 100 : null,
+        durchschnittVerspaetung: verspaetet.length
+            ? verspaetet.reduce((s, a) => s + a, 0) / verspaetet.length
+            : 0,
+    };
+}
+
+function abweichungText(tage) {
+    if (tage === null) return '–';
+    if (tage === 0) return 'pünktlich';
+    if (tage < 0) return `${-tage} ${-tage === 1 ? 'Tag' : 'Tage'} früher`;
+    return `${tage} ${tage === 1 ? 'Tag' : 'Tage'} zu spät`;
+}
+
+function renderLiefertreue(dbType, zeilen) {
+    const box = document.getElementById('liefertreue' + DBTYPE_SUFFIX[dbType]);
+    if (!box) return;
+    const t = berechneLiefertreue(zeilen);
+    if (t.bewertbar === 0) {
+        box.innerHTML = `<div class="liefertreue-leer">Liefertreue noch nicht berechenbar - dafür braucht ein Auftrag einen Liefertermin und ein Lieferdatum.${t.ohneDaten ? ` (${t.ohneDaten} ohne diese Angaben)` : ''}</div>`;
+        return;
+    }
+    const prozent = t.prozent.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const stufe = t.prozent >= 95 ? 'gut' : t.prozent >= 85 ? 'mittel' : 'schlecht';
+    box.innerHTML = `
+        <div class="liefertreue-wert ${stufe}">${prozent} %</div>
+        <div class="liefertreue-text">
+            <b>Liefertreue</b> · ${t.puenktlich} von ${t.bewertbar} ${t.bewertbar === 1 ? 'Auftrag' : 'Aufträgen'} pünktlich
+            <div class="liefertreue-meta">
+                ${t.verspaetet > 0 ? `${t.verspaetet} zu spät, im Schnitt ${t.durchschnittVerspaetung.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Tage` : 'keine Verspätung'}
+                ${t.ohneDaten > 0 ? ` · ${t.ohneDaten} ohne Liefertermin oder Lieferdatum (nicht gewertet)` : ''}
+            </div>
+        </div>`;
+}
+
 function renderArchiv(dbType) {
     const suffix = DBTYPE_SUFFIX[dbType];
     const tbody = document.getElementById('archivTable' + suffix);
@@ -4098,14 +4171,20 @@ function renderArchiv(dbType) {
         ? `${gesamt} ${gesamt === 1 ? 'Auftrag' : 'Aufträge'} im Archiv`
         : `${zeilen.length} von ${gesamt} Aufträgen`;
 
+    // Liefertreue immer aus dem, was gerade in der Tabelle steht - so lässt sie
+    // sich über die Suche auch je Artikel oder Kunde auswerten.
+    renderLiefertreue(dbType, zeilen);
+
     tbody.innerHTML = '';
     if (zeilen.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="color: #64748b;">${gesamt === 0 ? 'Noch nichts archiviert. Aufträge wandern über "Ausgeliefert" ins Archiv.' : 'Kein Treffer zur Suche.'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" style="color: #64748b;">${gesamt === 0 ? 'Noch nichts archiviert. Aufträge wandern über "Ausgeliefert" ins Archiv.' : 'Kein Treffer zur Suche.'}</td></tr>`;
         return;
     }
     zeilen.forEach(o => {
         const tr = document.createElement('tr');
         const geliefert = gelieferteMenge(o);
+        const istDatum = tatsaechlichesLieferdatum(o);
+        const abweichung = lieferAbweichungTage(o);
         const werte = [
             o.auftragsnummer || '',
             o.artikelnummer || '',
@@ -4113,14 +4192,23 @@ function renderArchiv(dbType) {
             o.bestellnummer || '',
             o.bestellmenge != null ? `${o.bestellmenge} Stk` : '–',
             `${geliefert} Stk`,
-            o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '–',
-            o.archiviertAm ? new Date(o.archiviertAm).toLocaleDateString('de-DE') : '–',
+            o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–',
+            istDatum ? istDatum.toLocaleDateString('de-DE') : '–',
         ];
         werte.forEach(wert => {
             const td = document.createElement('td');
             td.textContent = wert;
             tr.appendChild(td);
         });
+
+        const abwTd = document.createElement('td');
+        abwTd.textContent = abweichungText(abweichung);
+        if (abweichung !== null) abwTd.className = abweichung > 0 ? 'liefertreue-spaet' : 'liefertreue-puenktlich';
+        tr.appendChild(abwTd);
+
+        const archivTd = document.createElement('td');
+        archivTd.textContent = o.archiviertAm ? new Date(o.archiviertAm).toLocaleDateString('de-DE') : '–';
+        tr.appendChild(archivTd);
         const aktionen = document.createElement('td');
         aktionen.className = 'table-actions';
         const detailBtn = document.createElement('button');
@@ -4201,6 +4289,9 @@ function openArchivDetail(orderId) {
         </div>
         <div class="archiv-abschnitt">
             <h4>Lieferungen (Warenausgang)</h4>
+            <div class="archiv-zeile"><span>Liefertermin (Soll)</span><b>${o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '–'}</b></div>
+            <div class="archiv-zeile"><span>Geliefert am (letzte Sendung)</span><b>${tatsaechlichesLieferdatum(o)?.toLocaleDateString('de-DE') || '–'}</b></div>
+            <div class="archiv-zeile"><span>Liefertreue</span><b class="${lieferAbweichungTage(o) > 0 ? 'liefertreue-spaet' : 'liefertreue-puenktlich'}">${abweichungText(lieferAbweichungTage(o))}</b></div>
             <div class="archiv-zeile"><span>Warenausgang</span><b>${o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '–'}</b></div>
             ${lieferungen || '<div class="archiv-leer">Keine Teilsendungen erfasst.</div>'}
         </div>
@@ -4240,6 +4331,10 @@ function exportArchivExcel(dbType) {
         'Sollmenge (Bestellung)': o.bestellmenge ?? '',
         'Fertigungsmenge': o.gesamtmenge ?? o.menge ?? '',
         'Geliefert (Ist)': gelieferteMenge(o),
+        'Liefertermin (Soll)': o.lieferdatum ? new Date(o.lieferdatum).toLocaleDateString('de-DE') : '',
+        'Geliefert am (Ist)': tatsaechlichesLieferdatum(o)?.toLocaleDateString('de-DE') || '',
+        'Abweichung (Tage)': lieferAbweichungTage(o) ?? '',
+        'Liefertreue': lieferAbweichungTage(o) === null ? 'nicht bewertbar' : (lieferAbweichungTage(o) <= 0 ? 'pünktlich' : 'zu spät'),
         'Warenausgang': o.warenausgang ? new Date(o.warenausgang).toLocaleDateString('de-DE') : '',
         'Archiviert': o.archiviertAm ? new Date(o.archiviertAm).toLocaleDateString('de-DE') : '',
         'Chargen': (o.komponenten || []).map(k => k.charge).filter(Boolean).join(', '),

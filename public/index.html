@@ -129,6 +129,18 @@
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
         /* Sollmenge laut Bestellung + tatsächlich ausgelieferte Teilsendungen */
+        /* Archiv: Liefertreue */
+        .liefertreue-box { display: flex; align-items: center; gap: 16px; padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .liefertreue-wert { font-size: 30px; font-weight: 700; line-height: 1; }
+        .liefertreue-wert.gut { color: #15803d; }
+        .liefertreue-wert.mittel { color: #b45309; }
+        .liefertreue-wert.schlecht { color: #b91c1c; }
+        .liefertreue-text { font-size: 14px; color: #334155; }
+        .liefertreue-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+        .liefertreue-leer { font-size: 13px; color: #64748b; }
+        td.liefertreue-puenktlich, b.liefertreue-puenktlich { color: #15803d; font-weight: 600; }
+        td.liefertreue-spaet, b.liefertreue-spaet { color: #b91c1c; font-weight: 600; }
+
         /* Archiv */
         .archiv-abschnitt { margin-top: 18px; }
         .archiv-abschnitt h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; margin-bottom: 8px; }
@@ -622,6 +634,7 @@
                     <span id="archivAnzahlFormgebung" style="font-size: 13px; color: #64748b;"></span>
                     <button class="btn btn-secondary archiv-export-btn" style="width: auto;" data-suffix="Formgebung">⬇ Excel</button>
                 </div>
+                <div class="liefertreue-box" id="liefertreueFormgebung"></div>
                 <div class="table-container">
                     <table>
                         <thead>
@@ -632,7 +645,9 @@
                                 <th>Bestellung</th>
                                 <th>Soll</th>
                                 <th>Geliefert</th>
-                                <th>Warenausgang</th>
+                                <th>Liefertermin</th>
+                                <th>Geliefert am</th>
+                                <th>Liefertreue</th>
                                 <th>Archiviert</th>
                                 <th></th>
                             </tr>
@@ -654,6 +669,7 @@
                     <span id="archivAnzahlCnc" style="font-size: 13px; color: #64748b;"></span>
                     <button class="btn btn-secondary archiv-export-btn" style="width: auto;" data-suffix="Cnc">⬇ Excel</button>
                 </div>
+                <div class="liefertreue-box" id="liefertreueCnc"></div>
                 <div class="table-container">
                     <table>
                         <thead>
@@ -664,7 +680,9 @@
                                 <th>Bestellung</th>
                                 <th>Soll</th>
                                 <th>Geliefert</th>
-                                <th>Warenausgang</th>
+                                <th>Liefertermin</th>
+                                <th>Geliefert am</th>
+                                <th>Liefertreue</th>
                                 <th>Archiviert</th>
                                 <th></th>
                             </tr>
