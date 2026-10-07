@@ -2,6 +2,7 @@ const express = require('express');
 const Order = require('../models/Order');
 const Artikelstamm = require('../models/Artikelstamm');
 const authMiddleware = require('../middleware/auth');
+const { aktuelleVersion, abonniere } = require('../lib/orderEvents');
 const adminMiddleware = require('../middleware/admin');
 
 const router = express.Router();
@@ -25,6 +26,39 @@ router.get('/', authMiddleware, async (req, res) => {
     res.json(orders);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// Offener Kanal für Live-Aktualisierung: der Browser hält diese Verbindung und
+// bekommt eine Nachricht, sobald jemand etwas an den Aufträgen ändert. Der
+// Heartbeat alle 25 Sekunden hält die Verbindung durch Proxys/Render offen.
+//
+// Muss vor den /:orderId-Routen stehen, sonst würde "events" als Auftrags-ID
+// gelesen. Die Anmeldung läuft wie überall über den Authorization-Header - der
+// Browser liest den Stream deshalb per fetch() statt per EventSource (das kann
+// keine Header senden, und das Token hätte sonst in der URL gestanden).
+router.get('/events', authMiddleware, (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+  res.write(`event: start\ndata: ${JSON.stringify({ version: aktuelleVersion() })}\n\n`);
+
+  const abmelden = abonniere(res);
+  const heartbeat = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch (err) { /* Verbindung ist weg, close räumt auf */ }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    abmelden();
+  });
+});
+
+// Kleiner Abgleich für den Fall, dass der Live-Kanal nicht zustande kommt -
+// ein paar Byte statt der kompletten Auftragsliste.
+router.get('/version', authMiddleware, (req, res) => res.json({ version: aktuelleVersion() }));
 
 // Fügt einen neuen Excel-Import zur bestehenden Planung hinzu, statt sie zu
 // ersetzen - bestehende Aufträge (in jeder Phase) bleiben unangetastet. Anhand

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { meldeAenderung } = require('../lib/orderEvents');
 
 // Foto zum Wareneingang (meist die handschriftlich notierte Chargennummer) -
 // eigene Unter-Struktur wie zeichnung/einstelldatenblatt beim Artikel, aber
@@ -195,5 +196,11 @@ orderSchema.pre('save', function(next) {
   }
   next();
 });
+
+// Jede Änderung an einem Auftrag meldet sich an die offenen Bildschirme (siehe
+// lib/orderEvents.js). Bewusst am Modell statt in den Routen: so kann keine
+// Route - auch keine künftige und keine aus dem Shopfloor - es vergessen.
+['save', 'findOneAndUpdate', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'findOneAndDelete', 'insertMany']
+  .forEach(hook => orderSchema.post(hook, function () { meldeAenderung(); }));
 
 module.exports = mongoose.model('Order', orderSchema);

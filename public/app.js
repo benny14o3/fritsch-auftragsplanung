@@ -2121,9 +2121,75 @@ async function fetchBoard() {
     }
 }
 
+// Aktualisierung des Boards: der Bildschirm hält eine offene Verbindung zum
+// Server (siehe routes/orders.js GET /orders/events) und lädt neu, sobald
+// jemand etwas ändert - aus dem Büro oder vom Shopfloor. Zusätzlich läuft alle
+// 60 Sekunden ein Abgleich als Sicherheitsnetz, falls die Verbindung steht,
+// aber eine Nachricht verloren ging (Standby, WLAN-Wechsel, Proxy).
+const BOARD_ABGLEICH_MS = 60000;
+let liveVerbindungLaeuft = false;
+let letzteVersion = null;
+
 function startBoardPolling() {
+    starteLiveVerbindung();
     if (boardPollTimer) return;
-    boardPollTimer = setInterval(fetchBoard, 6000);
+    boardPollTimer = setInterval(abgleichBoard, BOARD_ABGLEICH_MS);
+}
+
+// Fragt nur die Versionsnummer ab (ein paar Byte) und lädt die Aufträge nur
+// dann neu, wenn sich wirklich etwas geändert hat.
+async function abgleichBoard() {
+    try {
+        const res = await fetch(`${API_URL}/orders/version`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        const { version } = await res.json();
+        if (letzteVersion === null) { letzteVersion = version; return; }
+        if (version !== letzteVersion) {
+            letzteVersion = version;
+            fetchBoard();
+        }
+    } catch (err) { /* nächster Abgleich versucht es erneut */ }
+}
+
+// Liest den Ereignis-Strom per fetch (statt EventSource), damit das Token im
+// Authorization-Header bleibt und nicht in der URL steht. Bricht die Verbindung
+// ab, wird nach kurzer Pause neu verbunden; bis dahin trägt der 60-Sekunden-
+// Abgleich.
+async function starteLiveVerbindung() {
+    if (liveVerbindungLaeuft || !token) return;
+    liveVerbindungLaeuft = true;
+    try {
+        const res = await fetch(`${API_URL}/orders/events`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok || !res.body) throw new Error('Kein Ereignis-Strom');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let puffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            puffer += decoder.decode(value, { stream: true });
+            // Ereignisse sind durch eine Leerzeile getrennt; ein unvollständiger
+            // Rest bleibt im Puffer, bis der Rest nachkommt.
+            const bloecke = puffer.split('\n\n');
+            puffer = bloecke.pop();
+            bloecke.forEach(block => {
+                const datenZeile = block.split('\n').find(z => z.startsWith('data:'));
+                if (!datenZeile) return; // Heartbeat
+                try {
+                    const daten = JSON.parse(datenZeile.slice(5).trim());
+                    if (daten.version === letzteVersion) return; // eigene Änderung, schon im Bild
+                    letzteVersion = daten.version;
+                    if (block.includes('event: aenderung')) fetchBoard();
+                } catch (err) { /* unlesbares Ereignis überspringen */ }
+            });
+        }
+    } catch (err) {
+        // Verbindung steht nicht (Netz weg, Proxy, Server neu gestartet)
+    } finally {
+        liveVerbindungLaeuft = false;
+        // Nach einer kurzen Pause neu verbinden, solange noch jemand angemeldet ist.
+        if (token) setTimeout(starteLiveVerbindung, 5000);
+    }
 }
 
 // Baut den Kern einer Auftragskarte (Titel, Beschreibung, Bestellung, Zeitraum,
