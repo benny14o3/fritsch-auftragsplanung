@@ -195,6 +195,97 @@ async function exportArtikelmappe(article, ladeDatei) {
     downloadBytes(bytes, `Artikelmappe-${article.material}.pdf`, 'application/pdf');
 }
 
+// --- Mitteilung über einen abweichenden Liefertermin (PDF für den Kunden) ---
+//
+// Gedruckt wird nur, was wirklich belegt ist: der Termin aus der Bestellung,
+// der von uns bestätigte Termin und die Abweichung in Tagen. Beide Termine
+// stehen nebeneinander, damit der Kunde die Änderung sofort nachvollziehen kann.
+
+function terminabweichungDaten(order) {
+    const soll = order.lieferdatum ? new Date(order.lieferdatum) : null;
+    const bestaetigt = order.lieferterminKorrigiert ? new Date(order.lieferterminKorrigiert) : null;
+    const tage = (soll && bestaetigt)
+        ? Math.round((new Date(bestaetigt.getFullYear(), bestaetigt.getMonth(), bestaetigt.getDate())
+            - new Date(soll.getFullYear(), soll.getMonth(), soll.getDate())) / 86400000)
+        : null;
+    const richtung = tage === null ? '' : tage > 0
+        ? `${tage} ${tage === 1 ? 'Tag' : 'Tage'} später`
+        : tage < 0 ? `${-tage} ${-tage === 1 ? 'Tag' : 'Tage'} früher` : 'unverändert';
+    return { soll, bestaetigt, tage, richtung };
+}
+
+async function exportTerminabweichung(order) {
+    const pdfDoc = await PDFLib.PDFDocument.create();
+    const font = await pdfDoc.embedFont(PDFLib.StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+    const page = pdfDoc.addPage([A4_BREITE, A4_HOEHE]);
+    const { soll, bestaetigt, richtung } = terminabweichungDaten(order);
+    const datum = d => d ? d.toLocaleDateString('de-DE') : '–';
+
+    let y = A4_HOEHE - 60;
+    page.drawText('Formteile Fritsch GmbH', { x: SEITENRAND, y, size: 10, font });
+    y -= 40;
+    page.drawText('Mitteilung: abweichender Liefertermin', { x: SEITENRAND, y, size: 20, font: fontBold });
+    y -= 26;
+    page.drawText(`Ausgestellt am ${new Date().toLocaleDateString('de-DE')}`, { x: SEITENRAND, y, size: 10, font });
+    y -= 36;
+
+    const zeilen = [
+        ['Bestellnummer', order.bestellnummer || '–'],
+        ['Unser Auftrag', order.auftragsnummer || '–'],
+        ['Artikel', `${order.artikelnummer || ''}${order.beschreibung ? ' - ' + order.beschreibung : ''}`],
+        ['Menge', order.bestellmenge != null ? `${order.bestellmenge} Stk` : `${order.menge ?? '–'} Stk`],
+    ];
+    zeilen.forEach(([label, wert]) => {
+        page.drawText(label + ':', { x: SEITENRAND, y, size: 11, font: fontBold });
+        page.drawText(String(wert), { x: SEITENRAND + 140, y, size: 11, font });
+        y -= 18;
+    });
+
+    y -= 22;
+    page.drawText('Liefertermin', { x: SEITENRAND, y, size: 14, font: fontBold });
+    y -= 24;
+    const termine = [
+        ['Laut Ihrer Bestellung', datum(soll)],
+        ['Von uns bestätigt', datum(bestaetigt)],
+        ['Abweichung', richtung || '–'],
+    ];
+    termine.forEach(([label, wert]) => {
+        page.drawText(label + ':', { x: SEITENRAND, y, size: 11, font: fontBold });
+        page.drawText(String(wert), { x: SEITENRAND + 140, y, size: 11, font });
+        y -= 18;
+    });
+
+    if (order.lieferterminGrund) {
+        y -= 14;
+        page.drawText('Grund:', { x: SEITENRAND, y, size: 11, font: fontBold });
+        // Lange Begründungen umbrechen, damit nichts über den Rand läuft.
+        const maxBreite = A4_BREITE - 2 * SEITENRAND - 140;
+        const woerter = String(order.lieferterminGrund).split(/\s+/);
+        let zeile = '';
+        let zeilenY = y;
+        woerter.forEach(wort => {
+            const versuch = zeile ? `${zeile} ${wort}` : wort;
+            if (font.widthOfTextAtSize(versuch, 11) > maxBreite && zeile) {
+                page.drawText(zeile, { x: SEITENRAND + 140, y: zeilenY, size: 11, font });
+                zeilenY -= 16;
+                zeile = wort;
+            } else {
+                zeile = versuch;
+            }
+        });
+        if (zeile) page.drawText(zeile, { x: SEITENRAND + 140, y: zeilenY, size: 11, font });
+        y = zeilenY - 18;
+    }
+
+    y -= 24;
+    page.drawText('Wir bitten die Änderung zu entschuldigen und bestätigen hiermit den oben genannten Termin.',
+        { x: SEITENRAND, y, size: 10, font });
+
+    const bytes = await pdfDoc.save();
+    downloadBytes(bytes, `Terminabweichung-${order.auftragsnummer || 'Auftrag'}.pdf`, 'application/pdf');
+}
+
 // --- FSK-Historie (Excel: alle Aufträge eines Artikels über alle Phasen) ---
 
 function exportFskHistorie(material, bezeichnung, auftraege) {

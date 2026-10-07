@@ -2283,6 +2283,8 @@ function buildCardElement(order, { spalte = null } = {}) {
     bestellTeile.push(`Liefertermin <input type="date" class="kanban-card-liefertermin" value="${toDateInputValue(sollLiefertermin(order))}">`);
     if (order.lieferterminKorrigiert && order.lieferdatum) {
         bestellTeile.push(`<span class="kanban-card-termin-original" title="${escapeHtml(order.lieferterminGrund || 'abweichend bestätigt')}">laut Bestellung ${formatDateShort(order.lieferdatum)}</span>`);
+        // Nur bei tatsächlich abweichendem Termin: Mitteilung für den Kunden.
+        bestellTeile.push(`<button type="button" class="kanban-card-abweichung-btn" title="PDF erzeugen und Mail vorbereiten">📧 Abweichung melden</button>`);
     }
     const bestellung = bestellTeile.length ? `<div class="kanban-card-bestellung">🧾 ${bestellTeile.join(' · ')}</div>` : '';
 
@@ -2424,6 +2426,16 @@ function buildCardElement(order, { spalte = null } = {}) {
         mengeInput.addEventListener('change', (e) => {
             e.stopPropagation();
             setMenge(order._id, parseInt(mengeInput.value));
+        });
+    }
+
+    const abweichungBtn = card.querySelector('.kanban-card-abweichung-btn');
+    if (abweichungBtn) {
+        abweichungBtn.draggable = false;
+        abweichungBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+        abweichungBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            meldeTerminabweichung(order, abweichungBtn);
         });
     }
 
@@ -3871,6 +3883,52 @@ async function patchOrder(orderId, body) {
             body: JSON.stringify(body),
         });
     } catch (err) { /* nächster Poll korrigiert */ }
+}
+
+// Eigene kleine Funktion, damit sich das Öffnen des Mailprogramms im Test
+// ersetzen lässt (window.location.href ist nicht überschreibbar).
+function oeffneMailprogramm(url) {
+    window.location.href = url;
+}
+
+// Mitteilung über einen abweichenden Liefertermin: PDF erzeugen und das
+// Mailprogramm mit fertigem Betreff und Text öffnen. Bewusst kein Versand aus
+// der App heraus - so sieht jede Mail vor dem Abschicken noch einmal jemand an,
+// und es braucht keinen Postfach-Zugang in der Anwendung.
+async function meldeTerminabweichung(order, btn) {
+    const urspruenglich = btn ? btn.textContent : '';
+    try {
+        if (btn) { btn.textContent = 'PDF wird erzeugt...'; btn.disabled = true; }
+        await exportTerminabweichung(order);
+
+        const { soll, bestaetigt, richtung } = terminabweichungDaten(order);
+        const datum = d => d ? d.toLocaleDateString('de-DE') : '-';
+        const betreff = `Abweichender Liefertermin - Bestellung ${order.bestellnummer || ''} / Auftrag ${order.auftragsnummer || ''}`.trim();
+        const text = [
+            'Sehr geehrte Damen und Herren,',
+            '',
+            `zu Ihrer Bestellung ${order.bestellnummer || '-'} (unser Auftrag ${order.auftragsnummer || '-'}, Artikel ${order.artikelnummer || '-'}${order.beschreibung ? ' - ' + order.beschreibung : ''}) müssen wir Ihnen einen abweichenden Liefertermin mitteilen.`,
+            '',
+            `Liefertermin laut Bestellung: ${datum(soll)}`,
+            `Von uns bestätigter Liefertermin: ${datum(bestaetigt)}${richtung ? ` (${richtung})` : ''}`,
+            order.lieferterminGrund ? `Grund: ${order.lieferterminGrund}` : '',
+            '',
+            'Die Mitteilung finden Sie im Anhang.',
+            '',
+            'Mit freundlichen Grüßen',
+            'Formteile Fritsch GmbH',
+        ].filter(z => z !== null).join('\n');
+
+        oeffneMailprogramm(`mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text)}`);
+        if (btn) btn.textContent = '✅ PDF im Download - bitte anhängen';
+    } catch (err) {
+        if (btn) btn.textContent = 'PDF fehlgeschlagen';
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            setTimeout(() => { btn.textContent = urspruenglich; }, 6000);
+        }
+    }
 }
 
 // Freier Kommentar je Auftrag - bewusst kein renderAll() nach dem Setzen (anders
