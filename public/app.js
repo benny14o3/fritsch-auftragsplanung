@@ -114,6 +114,14 @@ document.querySelectorAll('.vollbild-btn').forEach(btn => {
     });
 });
 
+// Aufträge aus vergangenen Kalenderwochen in diese Woche nachziehen (nur Admin).
+document.querySelectorAll('.rueckstand-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const dbType = Object.keys(DBTYPE_SUFFIX).find(k => DBTYPE_SUFFIX[k] === btn.dataset.suffix);
+        if (dbType) ziehRueckstandNach(dbType);
+    });
+});
+
 // Überlappende Balken im Zeitplan auflösen (siehe loeseUeberlappungen).
 document.querySelectorAll('.konflikt-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2940,6 +2948,14 @@ function renderGantt(orders, dbType) {
     const konfliktSchluessel = new Set(konflikte.flatMap(k => [abschnittSchluessel(k.frueher), abschnittSchluessel(k.spaeter)]));
     const hinweis = document.getElementById('konfliktHinweis' + suffix);
     const knopf = document.querySelector(`.konflikt-btn[data-suffix="${suffix}"]`);
+
+    // Anzahl im Knopf mitführen - die Sichtbarkeit steuert allein die
+    // admin-only-Regel aus showApp(), deshalb hier nur die Beschriftung.
+    const rueckstandKnopf = document.querySelector(`.rueckstand-btn[data-suffix="${suffix}"]`);
+    if (rueckstandKnopf) {
+        const anzahl = rueckstaendigeAbschnitte(dbType).rueckstand.length;
+        rueckstandKnopf.textContent = anzahl > 0 ? `📅 Rückstand nachziehen (${anzahl})` : '📅 Rückstand nachziehen';
+    }
     if (hinweis && knopf) {
         const anzahl = konflikte.length;
         if (anzahl > 0) {
@@ -3493,6 +3509,78 @@ function findePlanungsZeitraum(order, maschinenIds, tage, exclude = {}) {
     const ids = maschinenIds.filter(Boolean);
     const startDatum = findeFreieLuecke(ids, tage, new Date(), exclude);
     return { startDatum, endDatum: addWorkdays(startDatum, tage - 1) };
+}
+
+// Abschnitte, die noch in einer vergangenen Kalenderwoche liegen - also
+// Aufträge, die eingeplant waren, aber nie gefertigt wurden. Aufträge, auf die
+// schon Runden gemeldet wurden, bleiben stehen: die laufen bereits und dürfen
+// nicht einfach nach vorne gezogen werden.
+function rueckstaendigeAbschnitte(dbType) {
+    const wochenbeginn = startOfWeek(new Date());
+    const alle = alleZeitabschnitte(boardOrders.filter(o =>
+        o.dbType === dbType && o.phase === 'produktion' && istImZeitplan(o)));
+    const rueckstand = [];
+    const laufend = [];
+    alle.forEach(a => {
+        if (tagesBeginn(a.startDatum) >= wochenbeginn) return;
+        if ((a.order.produktion || []).length > 0) laufend.push(a);
+        else rueckstand.push(a);
+    });
+    rueckstand.sort((x, y) => tagesBeginn(x.startDatum) - tagesBeginn(y.startDatum));
+    return { rueckstand, laufend, wochenbeginn };
+}
+
+// Alles, was aus alten Kalenderwochen übrig ist, in diese Woche nachziehen -
+// der Reihe nach in die nächsten freien Lücken, damit nichts übereinanderliegt.
+async function ziehRueckstandNach(dbType) {
+    const { rueckstand, laufend } = rueckstaendigeAbschnitte(dbType);
+    const hinweis = document.getElementById('konfliktHinweis' + DBTYPE_SUFFIX[dbType]);
+    if (rueckstand.length === 0) {
+        if (hinweis) {
+            hinweis.style.color = '#64748b';
+            hinweis.textContent = 'Keine Aufträge aus vergangenen Kalenderwochen.';
+            setTimeout(() => renderAll(), 4000);
+        }
+        return;
+    }
+
+    const namen = rueckstand.slice(0, 8).map(a => a.order.auftragsnummer).join(', ');
+    const frage = `${rueckstand.length} ${rueckstand.length === 1 ? 'Auftrag liegt' : 'Aufträge liegen'} noch in vergangenen Kalenderwochen`
+        + `${laufend.length ? ` (${laufend.length} weitere laufen bereits und bleiben stehen)` : ''}:\n\n`
+        + `${namen}${rueckstand.length > 8 ? ', ...' : ''}\n\n`
+        + 'Jetzt in diese Woche nachziehen? Die Termine werden dabei neu vergeben.';
+    if (!confirm(frage)) return;
+
+    let verschoben = 0;
+    for (const a of rueckstand) {
+        const order = boardOrders.find(o => o._id === a.orderId);
+        if (!order) continue;
+        const exclude = { orderId: a.orderId, teilIndex: a.teilIndex };
+        const tage = Math.max(1, a.schichten || berechneBearbeitungszeit(order, a.menge).tage);
+        const startDatum = findeFreieLuecke([a.maschineId, a.maschineId2], tage, new Date(), exclude);
+        const endDatum = addWorkdays(startDatum, tage - 1);
+
+        let patchBody;
+        if (a.teilIndex === -1) {
+            order.startDatum = startDatum;
+            order.endDatum = endDatum;
+            order.status = 'geplant';
+            patchBody = { startDatum, endDatum, status: 'geplant' };
+        } else {
+            order.teilmengen[a.teilIndex].startDatum = startDatum;
+            order.teilmengen[a.teilIndex].endDatum = endDatum;
+            patchBody = { teilmengen: order.teilmengen };
+        }
+        verschoben++;
+        await patchOrder(order._id, patchBody);
+    }
+
+    renderAll();
+    if (hinweis) {
+        hinweis.style.color = '#15803d';
+        hinweis.textContent = `✅ ${verschoben} ${verschoben === 1 ? 'Auftrag' : 'Aufträge'} in diese Woche nachgezogen.`;
+        setTimeout(() => renderAll(), 5000);
+    }
 }
 
 // Abschnitte, die sich im Zeitplan mit einem anderen auf derselben Maschine
