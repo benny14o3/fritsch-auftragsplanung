@@ -133,6 +133,14 @@
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
         /* Sollmenge laut Bestellung + tatsächlich ausgelieferte Teilsendungen */
+        /* Schicht-Vorschau im Zeitplan */
+        .schicht-schalter { display: inline-flex; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+        .schicht-btn { border: none; background: white; color: #475569; font-size: 12px; font-weight: 600; padding: 7px 10px; cursor: pointer; border-right: 1px solid #e2e8f0; font-family: inherit; white-space: nowrap; }
+        .schicht-btn:last-child { border-right: none; }
+        .schicht-btn.aktiv { background: #0f172a; color: white; }
+        .schicht-vorschau-hinweis { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; }
+        .schicht-vorschau-hinweis b { font-weight: 700; }
+
         /* Archiv: Liefertreue */
         .liefertreue-box { display: flex; align-items: center; gap: 16px; padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 16px; flex-wrap: wrap; }
         .liefertreue-wert { font-size: 30px; font-weight: 700; line-height: 1; }
@@ -491,13 +499,19 @@
             <div class="card zeitplan-card">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <h3>Zeitplan</h3>
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                        <div class="schicht-schalter" data-suffix="Formgebung">
+                            <button type="button" class="schicht-btn aktiv" data-suffix="Formgebung" data-schichten="1">1 Schicht</button>
+                            <button type="button" class="schicht-btn" data-suffix="Formgebung" data-schichten="2">2 Schichten</button>
+                            <button type="button" class="schicht-btn" data-suffix="Formgebung" data-schichten="3">3 Schichten</button>
+                        </div>
                         <span id="konfliktHinweisFormgebung" style="font-size: 13px; font-weight: 600; color: #b91c1c;"></span>
                         <button class="btn btn-secondary rueckstand-btn admin-only hidden" style="width: auto;" data-suffix="Formgebung" title="Aufträge, die noch in vergangenen Kalenderwochen liegen, in diese Woche nachziehen">📅 Rückstand nachziehen</button>
                         <button class="btn btn-secondary konflikt-btn hidden" style="width: auto;" data-suffix="Formgebung">Überlappungen auflösen</button>
                         <button class="btn btn-secondary vollbild-btn" style="width: auto;" data-suffix="Formgebung">⛶ Vollbild</button>
                     </div>
                 </div>
+                <div id="schichtVorschauFormgebung" class="schicht-vorschau-hinweis hidden"></div>
                 <div class="gantt-wrapper">
                     <div class="gantt-grid" id="ganttGridFormgebung"></div>
                 </div>
@@ -557,13 +571,19 @@
             <div class="card zeitplan-card">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <h3>Zeitplan</h3>
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                        <div class="schicht-schalter" data-suffix="Cnc">
+                            <button type="button" class="schicht-btn aktiv" data-suffix="Cnc" data-schichten="1">1 Schicht</button>
+                            <button type="button" class="schicht-btn" data-suffix="Cnc" data-schichten="2">2 Schichten</button>
+                            <button type="button" class="schicht-btn" data-suffix="Cnc" data-schichten="3">3 Schichten</button>
+                        </div>
                         <span id="konfliktHinweisCnc" style="font-size: 13px; font-weight: 600; color: #b91c1c;"></span>
                         <button class="btn btn-secondary rueckstand-btn admin-only hidden" style="width: auto;" data-suffix="Cnc" title="Aufträge, die noch in vergangenen Kalenderwochen liegen, in diese Woche nachziehen">📅 Rückstand nachziehen</button>
                         <button class="btn btn-secondary konflikt-btn hidden" style="width: auto;" data-suffix="Cnc">Überlappungen auflösen</button>
                         <button class="btn btn-secondary vollbild-btn" style="width: auto;" data-suffix="Cnc">⛶ Vollbild</button>
                     </div>
                 </div>
+                <div id="schichtVorschauCnc" class="schicht-vorschau-hinweis hidden"></div>
                 <div class="gantt-wrapper">
                     <div class="gantt-grid" id="ganttGridCnc"></div>
                 </div>

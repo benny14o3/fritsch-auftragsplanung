@@ -2929,6 +2929,52 @@ function groupByWeek(tage) {
     return gruppen;
 }
 
+// Schicht-Vorschau: der echte Plan rechnet mit einer Schicht pro Tag (480 min).
+// Auf Knopfdruck lässt sich ansehen, wie der Zeitplan bei zwei oder drei
+// Schichten aussähe - reine Anzeige, es wird nichts gespeichert.
+const ZEITPLAN_SCHICHTEN = { Formgebung: 1, Cnc: 1 };
+
+// Legt die Abschnitte je Maschine neu hintereinander, mit der Dauer, die sich
+// bei der gewählten Schichtzahl ergibt. Die Reihenfolge bleibt wie geplant, und
+// kein Auftrag startet früher als bisher vorgesehen.
+function simuliereSchichtplan(abschnitte, schichtenProTag) {
+    const minutenProTag = 480 * schichtenProTag;
+    const naechsterFreierTag = new Map();
+    return [...abschnitte]
+        .sort((a, b) => tagesBeginn(a.startDatum) - tagesBeginn(b.startDatum))
+        .map(a => {
+            const maschinen = [a.maschineId, a.maschineId2].filter(Boolean);
+            const tage = Math.max(1, Math.ceil((a.bearbeitungsMin || 0) / minutenProTag));
+            let start = tagesBeginn(a.startDatum);
+            maschinen.forEach(m => {
+                const frei = naechsterFreierTag.get(m);
+                if (frei && frei > start) start = frei;
+            });
+            start = nextWeekday(start);
+            const ende = addWorkdays(start, tage - 1);
+            maschinen.forEach(m => naechsterFreierTag.set(m, addWorkdays(ende, 1)));
+            // Kopie statt Änderung am Auftrag - die Vorschau darf die echten
+            // Termine nicht anfassen.
+            return { ...a, startDatum: start, endDatum: ende, simuliert: true };
+        });
+}
+
+function letztesEnde(abschnitte) {
+    const enden = abschnitte.map(a => tagesBeginn(a.endDatum).getTime());
+    return enden.length ? new Date(Math.max(...enden)) : null;
+}
+
+document.querySelectorAll('.schicht-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const suffix = btn.dataset.suffix;
+        ZEITPLAN_SCHICHTEN[suffix] = Number(btn.dataset.schichten);
+        document.querySelectorAll(`.schicht-btn[data-suffix="${suffix}"]`).forEach(b => {
+            b.classList.toggle('aktiv', b === btn);
+        });
+        renderAll();
+    });
+});
+
 function renderGantt(orders, dbType) {
     const suffix = DBTYPE_SUFFIX[dbType];
     const maschinenListe = MASCHINEN.filter(m => m.type === dbType);
@@ -2940,11 +2986,31 @@ function renderGantt(orders, dbType) {
     // auf der Kanban-Karte). Ein Auftrag kann mehrere Zeitabschnitte haben (siehe
     // alleZeitabschnitte) - jeder davon bekommt einen eigenen Balken.
     const bereiteOrders = orders.filter(o => istImZeitplan(o));
-    const abschnitte = alleZeitabschnitte(bereiteOrders);
+    const echteAbschnitte = alleZeitabschnitte(bereiteOrders);
+
+    // Schicht-Vorschau (siehe simuliereSchichtplan) - im Vorschaumodus zeigt der
+    // Zeitplan gerechnete, nicht gespeicherte Termine.
+    const schichten = ZEITPLAN_SCHICHTEN[suffix] || 1;
+    const vorschau = schichten > 1;
+    const abschnitte = vorschau ? simuliereSchichtplan(echteAbschnitte, schichten) : echteAbschnitte;
+
+    const vorschauBox = document.getElementById('schichtVorschau' + suffix);
+    if (vorschauBox) {
+        vorschauBox.classList.toggle('hidden', !vorschau);
+        if (vorschau) {
+            const vorher = letztesEnde(echteAbschnitte);
+            const nachher = letztesEnde(abschnitte);
+            const ersparnis = (vorher && nachher)
+                ? ` Die Belegung endet am <b>${formatDateShort(nachher)}</b> statt am ${formatDateShort(vorher)}`
+                : '';
+            vorschauBox.innerHTML = `👁 <b>Vorschau: ${schichten}-Schicht-Betrieb.</b>${ersparnis} Diese Termine sind gerechnet und <b>nicht gespeichert</b> - Verschieben per Drag & Drop ist hier ausgeschaltet. Zurück über "1 Schicht".`;
+        }
+    }
 
     // Überlappende Balken rot umranden und oben einen Hinweis samt Knopf zum
-    // Auflösen zeigen - sonst liegen zwei Aufträge unbemerkt übereinander.
-    const konflikte = findeUeberlappungen(dbType);
+    // Auflösen zeigen - sonst liegen zwei Aufträge unbemerkt übereinander. In
+    // der Vorschau nicht: dort stehen ohnehin gerechnete Termine.
+    const konflikte = vorschau ? [] : findeUeberlappungen(dbType);
     const konfliktSchluessel = new Set(konflikte.flatMap(k => [abschnittSchluessel(k.frueher), abschnittSchluessel(k.spaeter)]));
     const hinweis = document.getElementById('konfliktHinweis' + suffix);
     const knopf = document.querySelector(`.konflikt-btn[data-suffix="${suffix}"]`);
@@ -2955,6 +3021,9 @@ function renderGantt(orders, dbType) {
     if (rueckstandKnopf) {
         const anzahl = rueckstaendigeAbschnitte(dbType).rueckstand.length;
         rueckstandKnopf.textContent = anzahl > 0 ? `📅 Rückstand nachziehen (${anzahl})` : '📅 Rückstand nachziehen';
+        // In der Vorschau nicht anklickbar - sonst würde eine Aktion auf den
+        // echten Terminen laufen, während gerechnete Balken zu sehen sind.
+        rueckstandKnopf.disabled = vorschau;
     }
     if (hinweis && knopf) {
         const anzahl = konflikte.length;
@@ -3033,6 +3102,7 @@ function renderGantt(orders, dbType) {
             cell.addEventListener('drop', (e) => {
                 e.preventDefault();
                 cell.classList.remove('drag-over');
+                if (vorschau) return; // in der Vorschau nichts verschieben
                 if (draggedOrderId && draggedOrderFeld) {
                     moveGanttOrder(draggedOrderId, draggedOrderFeld, m.id, t, draggedTeilIndex);
                 }
@@ -3077,10 +3147,11 @@ function renderGantt(orders, dbType) {
                 ${o.beschreibung ? `<div class="gantt-bar-zelle gantt-bar-desc">${escapeHtml(o.beschreibung)}</div>` : ''}
                 ${statusTeile.length ? `<div class="gantt-bar-zelle gantt-bar-status${zuSpaet ? ' spaet' : ''}">${statusTeile.join(' · ')}</div>` : ''}
             `;
-            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\nSoll (Bestellung) ${o.bestellmenge ?? '–'} Stk · geliefert ${gelieferteMenge(o)} Stk\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(sollLiefertermin(o))} (${lieferwoche})${o.lieferterminKorrigiert ? ' · bestätigt, laut Bestellung ' + formatDateShort(o.lieferdatum) : ''}` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}\nZiehen zum Verschieben`;
+            bar.title = `${o.artikelnummer}${o.beschreibung ? ' - ' + o.beschreibung : ''}\nAuftrag ${o.auftragsnummer}${istTeilmenge ? `\nTeilmenge: ${a.menge} von ${o.gesamtmenge ?? o.menge} Stk` : ''}\nSoll (Bestellung) ${o.bestellmenge ?? '–'} Stk · geliefert ${gelieferteMenge(o)} Stk\n${formatDateShort(a.startDatum)} – ${formatDateShort(a.endDatum)}${lieferwoche ? `\nLiefertermin ${formatDateShort(sollLiefertermin(o))} (${lieferwoche})${o.lieferterminKorrigiert ? ' · bestätigt, laut Bestellung ' + formatDateShort(o.lieferdatum) : ''}` : ''}${fehlendeKomponenten ? '\n⚠ Manuell eingeplant - Komponenten fehlen noch' : ''}${o.kommentar ? `\nKommentar: ${o.kommentar}` : ''}${vorschau ? `\nVorschau ${schichten}-Schicht-Betrieb - nicht gespeichert` : '\nZiehen zum Verschieben'}`;
             bar.style.gridColumn = `${mi + 3} / span 1`;
             bar.style.gridRow = `${startIdx + 2} / span ${endIdx - startIdx + 1}`;
-            bar.draggable = true;
+            bar.draggable = !vorschau;
+            if (vorschau) bar.style.cursor = 'default';
             bar.querySelector('.gantt-bar-kommentar-btn').addEventListener('mousedown', (e) => e.stopPropagation());
             bar.querySelector('.gantt-bar-kommentar-btn').addEventListener('click', async (e) => {
                 e.stopPropagation();
