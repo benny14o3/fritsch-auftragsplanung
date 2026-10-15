@@ -2934,9 +2934,11 @@ function groupByWeek(tage) {
 // Schichten aussähe - reine Anzeige, es wird nichts gespeichert.
 const ZEITPLAN_SCHICHTEN = { Formgebung: 1, Cnc: 1 };
 
-// Legt die Abschnitte je Maschine neu hintereinander, mit der Dauer, die sich
-// bei der gewählten Schichtzahl ergibt. Die Reihenfolge bleibt wie geplant, und
-// kein Auftrag startet früher als bisher vorgesehen.
+// Legt die Abschnitte je Maschine lückenlos hintereinander, mit der Dauer, die
+// sich bei der gewählten Schichtzahl ergibt. Der erste Auftrag einer Maschine
+// behält seinen Termin, alle weiteren rücken direkt auf - sonst blieben die
+// Lücken stehen, die durch die kürzeren Laufzeiten entstehen, und man sähe
+// nicht, was der Mehrschichtbetrieb wirklich bringt.
 function simuliereSchichtplan(abschnitte, schichtenProTag) {
     const minutenProTag = 480 * schichtenProTag;
     const naechsterFreierTag = new Map();
@@ -2945,11 +2947,14 @@ function simuliereSchichtplan(abschnitte, schichtenProTag) {
         .map(a => {
             const maschinen = [a.maschineId, a.maschineId2].filter(Boolean);
             const tage = Math.max(1, Math.ceil((a.bearbeitungsMin || 0) / minutenProTag));
-            let start = tagesBeginn(a.startDatum);
+            // Sobald auf einer der Maschinen schon etwas liegt, schließt der
+            // Auftrag direkt daran an; der erste behält seinen Starttermin.
+            let start = null;
             maschinen.forEach(m => {
                 const frei = naechsterFreierTag.get(m);
-                if (frei && frei > start) start = frei;
+                if (frei && (!start || frei > start)) start = frei;
             });
+            if (!start) start = tagesBeginn(a.startDatum);
             start = nextWeekday(start);
             const ende = addWorkdays(start, tage - 1);
             maschinen.forEach(m => naechsterFreierTag.set(m, addWorkdays(ende, 1)));
@@ -3003,7 +3008,7 @@ function renderGantt(orders, dbType) {
             const ersparnis = (vorher && nachher)
                 ? ` Die Belegung endet am <b>${formatDateShort(nachher)}</b> statt am ${formatDateShort(vorher)}`
                 : '';
-            vorschauBox.innerHTML = `👁 <b>Vorschau: ${schichten}-Schicht-Betrieb.</b>${ersparnis} Diese Termine sind gerechnet und <b>nicht gespeichert</b> - Verschieben per Drag & Drop ist hier ausgeschaltet. Zurück über "1 Schicht".`;
+            vorschauBox.innerHTML = `👁 <b>Vorschau: ${schichten}-Schicht-Betrieb.</b>${ersparnis} Aufträge rücken lückenlos auf. Diese Termine sind gerechnet und <b>nicht gespeichert</b> - Verschieben per Drag & Drop ist hier ausgeschaltet. Zurück über "1 Schicht".`;
         }
     }
 
