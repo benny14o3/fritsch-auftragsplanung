@@ -12,6 +12,7 @@ const orderRoutes = require('./routes/orders');
 const artikelstammRoutes = require('./routes/artikelstamm');
 const shopfloorRoutes = require('./routes/shopfloor');
 const backupRoutes = require('./routes/backup');
+const arbeitsgangRoutes = require('./routes/arbeitsgaenge');
 
 const app = express();
 
@@ -53,6 +54,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/artikelstamm', artikelstammRoutes);
 app.use('/api/shopfloor', shopfloorRoutes);
 app.use('/api/backup', backupRoutes);
+app.use('/api/arbeitsgaenge', arbeitsgangRoutes);
 
 // Frontend
 app.get('/', (req, res) => {

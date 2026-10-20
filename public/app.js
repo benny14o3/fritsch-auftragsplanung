@@ -155,7 +155,7 @@ function showPage(page) {
 
     if (BOARD_PAGES.includes(page)) loadExistingBoard();
     if (ARCHIV_PAGES[page]) fetchArchiv(ARCHIV_PAGES[page]);
-    if (page === 'databases') { fetchWerker(); fetchBackupStand(); }
+    if (page === 'databases') { fetchWerker(); fetchBackupStand(); ladeArbeitsgangKatalog(); }
 }
 
 async function loadExistingBoard() {
@@ -1014,10 +1014,19 @@ function renderDatabaseTable() {
     if (!tbody) return;
 
     const filterVal = (document.getElementById('databaseFilter')?.value || '').toLowerCase().trim();
+    const nurOhnePlan = document.getElementById('databaseNurOhnePlan')?.checked;
     const alle = artikelstamm.artikel || [];
-    const filtered = filterVal
+    let filtered = filterVal
         ? alle.filter(a => (a.material || '').toLowerCase().includes(filterVal) || (a.bezeichnung || '').toLowerCase().includes(filterVal))
         : alle;
+    if (nurOhnePlan) filtered = filtered.filter(a => (a.arbeitsgaenge || []).length === 0);
+
+    const stand = document.getElementById('arbeitsplanStand');
+    if (stand) {
+        const mitPlan = alle.filter(a => (a.arbeitsgaenge || []).length > 0).length;
+        const pct = alle.length ? Math.round((mitPlan / alle.length) * 100) : 0;
+        stand.textContent = `Arbeitsplan hinterlegt: ${mitPlan} von ${alle.length} Artikeln (${pct} %)`;
+    }
 
     tbody.innerHTML = '';
     filtered.forEach(article => {
@@ -1041,8 +1050,12 @@ function renderDatabaseTable() {
             const detailBtn = document.createElement('button');
             detailBtn.className = 'table-actions';
             detailBtn.style.cssText = 'font-size: 11px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #f8fafc; cursor: pointer; white-space: nowrap;';
-            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 🧪 ${article.qpa ? '1' : '0'} · 📋 ${(article.plp || []).length}`;
-            detailBtn.title = 'Zeichnung & PLP';
+            const schritte = (article.arbeitsgaenge || []).length;
+            detailBtn.textContent = `📄 ${article.zeichnung ? '1' : '0'} · 🔧 ${article.einstelldatenblatt ? '1' : '0'} · 🧪 ${article.qpa ? '1' : '0'} · 📋 ${(article.plp || []).length} · ⚙ ${schritte}`;
+            detailBtn.title = `Zeichnung, PLP und Arbeitsplan (${schritte} Schritte)`;
+            // Ohne Arbeitsplan lässt sich der Artikel nicht kalkulieren - deshalb
+            // sichtbar markieren, damit man die Lücken abarbeiten kann.
+            if (schritte === 0) { detailBtn.style.borderColor = '#fcd34d'; detailBtn.style.background = '#fffbeb'; }
             detailBtn.addEventListener('click', () => openArticleDetailModal(article.material));
             shopfloorTd.appendChild(detailBtn);
             tr.appendChild(shopfloorTd);
@@ -1257,6 +1270,7 @@ async function deleteDatabaseArticle(material) {
     }
 }
 
+document.getElementById('databaseNurOhnePlan')?.addEventListener('change', renderDatabaseTable);
 document.getElementById('databaseAddArticleBtn')?.addEventListener('click', addDatabaseArticle);
 document.getElementById('databaseFilter')?.addEventListener('input', renderDatabaseTable);
 
@@ -1275,6 +1289,8 @@ function openArticleDetailModal(material) {
     if (!article) return;
     articleDetailMaterial = material;
     articleDetailPlpRows = (article.plp || []).map(r => ({ ...r }));
+    articleDetailArbeitsgaenge = (article.arbeitsgaenge || []).map(r => ({ ...r }));
+    renderArticleDetailArbeitsgaenge();
     document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
     document.getElementById('articleDetailNote').textContent = '';
     document.getElementById('articleDetailExportNote').textContent = '';
@@ -1397,6 +1413,121 @@ function updatePlpDatalists() {
         datalist.innerHTML = [...namen].sort((a, b) => a.localeCompare(b, 'de')).map(name => `<option value="${escapeHtml(name)}">`).join('');
     });
 }
+
+// --- Arbeitsplan je Artikel (Grundlage der Kalkulation) ---
+
+let arbeitsgangKatalog = [];
+let articleDetailArbeitsgaenge = [];
+
+const ABRECHNUNG_LABEL = { stueck: 'je Stück', charge: 'je Charge', auftrag: 'je Auftrag' };
+
+async function ladeArbeitsgangKatalog() {
+    try {
+        const res = await fetch(`${API_URL}/arbeitsgaenge`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        arbeitsgangKatalog = await res.json();
+        renderArticleDetailArbeitsgaenge();
+    } catch (err) { /* Katalog konnte nicht geladen werden */ }
+}
+
+// Pro Artikel eine Zeile je Arbeitsgang aus dem Katalog. Angehakte Schritte
+// zeigen die Felder, die für ihre Abrechnungsart gebraucht werden - alles
+// andere wäre nur Ballast.
+function renderArticleDetailArbeitsgaenge() {
+    const box = document.getElementById('articleDetailArbeitsgaenge');
+    if (!box) return;
+    if (arbeitsgangKatalog.length === 0) {
+        box.innerHTML = '<p class="modal-sub">Arbeitsgänge werden geladen…</p>';
+        return;
+    }
+
+    box.innerHTML = arbeitsgangKatalog.filter(g => g.aktiv !== false).map(g => {
+        const gewaehlt = articleDetailArbeitsgaenge.find(a => a.schluessel === g.schluessel);
+        const feld = (titel, name, wert, vorgabe, einheit) => `
+            <label>${titel}
+                <input type="number" min="0" step="any" data-arbeitsgang="${g.schluessel}" data-feld="${name}"
+                    value="${wert ?? ''}" placeholder="${vorgabe || '–'}">
+                ${einheit}
+            </label>`;
+        let felder = '';
+        if (gewaehlt) {
+            if (g.abrechnung === 'stueck') {
+                felder = feld('Zeit', 'zeitSek', gewaehlt.zeitSek, g.standardzeitSek, 'Sek/Teil');
+            } else if (g.abrechnung === 'charge') {
+                felder = feld('Teile je Charge', 'chargengroesse', gewaehlt.chargengroesse, g.standardChargengroesse, 'Stk')
+                    + feld('Dauer', 'chargenzeitMin', gewaehlt.chargenzeitMin, g.standardChargenzeitMin, 'min');
+            } else {
+                felder = feld('Zeit', 'ruestzeitMin', gewaehlt.ruestzeitMin, g.standardRuestzeitMin, 'min/Auftrag');
+            }
+        }
+        return `
+        <div class="arbeitsgang-zeile${gewaehlt ? ' aktiv' : ''}">
+            <div class="arbeitsgang-kopf">
+                <input type="checkbox" data-arbeitsgang-an="${g.schluessel}" ${gewaehlt ? 'checked' : ''}>
+                <span class="arbeitsgang-name">${escapeHtml(g.name)}</span>
+                <span class="arbeitsgang-art ${g.abrechnung}">${ABRECHNUNG_LABEL[g.abrechnung]}</span>
+            </div>
+            <div class="arbeitsgang-felder">${felder}</div>
+            ${gewaehlt && g.bemerkung ? `<div class="arbeitsgang-hinweis">${escapeHtml(g.bemerkung)}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    box.querySelectorAll('[data-arbeitsgang-an]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const schluessel = cb.dataset.arbeitsgangAn;
+            if (cb.checked) {
+                const katalog = arbeitsgangKatalog.find(g => g.schluessel === schluessel);
+                // Vorgabewerte aus dem Katalog übernehmen, damit nicht jedes Feld
+                // einzeln getippt werden muss.
+                articleDetailArbeitsgaenge.push({
+                    schluessel,
+                    zeitSek: katalog?.standardzeitSek || undefined,
+                    chargengroesse: katalog?.standardChargengroesse || undefined,
+                    chargenzeitMin: katalog?.standardChargenzeitMin || undefined,
+                    ruestzeitMin: katalog?.standardRuestzeitMin || undefined,
+                });
+            } else {
+                articleDetailArbeitsgaenge = articleDetailArbeitsgaenge.filter(a => a.schluessel !== schluessel);
+            }
+            renderArticleDetailArbeitsgaenge();
+        });
+    });
+
+    box.querySelectorAll('input[data-feld]').forEach(input => {
+        input.addEventListener('input', () => {
+            const eintrag = articleDetailArbeitsgaenge.find(a => a.schluessel === input.dataset.arbeitsgang);
+            if (eintrag) eintrag[input.dataset.feld] = input.value === '' ? undefined : Number(input.value);
+        });
+    });
+
+    fuelleArbeitsplanVorlagen();
+}
+
+// Die meisten Artikel laufen gleich durch - deshalb den Plan eines anderen
+// Artikels übernehmen können, statt alles erneut anzuhaken.
+function fuelleArbeitsplanVorlagen() {
+    const select = document.getElementById('articleDetailPlanVorlage');
+    if (!select) return;
+    const vorlagen = (artikelstamm?.artikel || [])
+        .filter(a => (a.arbeitsgaenge || []).length > 0 && a.material !== articleDetailMaterial)
+        .sort((a, b) => String(a.material).localeCompare(String(b.material)));
+    select.innerHTML = vorlagen.length
+        ? `<option value="">– Artikel wählen –</option>` + vorlagen.map(a =>
+            `<option value="${escapeHtml(a.material)}">${escapeHtml(a.material)} (${a.arbeitsgaenge.length} Schritte)</option>`).join('')
+        : '<option value="">– noch kein Artikel mit Arbeitsplan –</option>';
+}
+
+document.getElementById('articleDetailPlanUebernehmenBtn')?.addEventListener('click', () => {
+    const material = document.getElementById('articleDetailPlanVorlage').value;
+    if (!material) return;
+    const vorlage = artikelstamm.artikel.find(a => a.material === material);
+    if (!vorlage) return;
+    articleDetailArbeitsgaenge = (vorlage.arbeitsgaenge || []).map(a => ({ ...a }));
+    renderArticleDetailArbeitsgaenge();
+    const note = document.getElementById('articleDetailNote');
+    note.style.color = '#475569';
+    note.textContent = `Arbeitsplan von ${material} übernommen - noch nicht gespeichert.`;
+});
 
 const PLP_TYP_LABEL = { prozess: 'Prozessschritt', masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.-Prüfung' };
 
@@ -1717,7 +1848,10 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
         const res = await fetch(`${API_URL}/artikelstamm/materialien/${encodeURIComponent(articleDetailMaterial)}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ plp: articleDetailPlpRows.filter(r => (r.bezeichnung || '').trim()) }),
+            body: JSON.stringify({
+                plp: articleDetailPlpRows.filter(r => (r.bezeichnung || '').trim()),
+                arbeitsgaenge: articleDetailArbeitsgaenge,
+            }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);

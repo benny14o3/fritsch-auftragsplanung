@@ -52,6 +52,19 @@ const plpEintragSchema = new mongoose.Schema({
   pruefhaeufigkeit: String,
 });
 
+// Ein Arbeitsgang, den dieser Artikel durchläuft (Katalog: models/Arbeitsgang.js).
+// Die Werte überschreiben die Vorgaben aus dem Katalog, weil sie sich je Artikel
+// unterscheiden: eine kleine Dichtung kontrolliert sich schneller als ein
+// Formteil, und in den Ofen passen je nach Größe unterschiedlich viele Teile.
+const artikelArbeitsgangSchema = new mongoose.Schema({
+  schluessel: { type: String, required: true },
+  zeitSek: Number,          // bei Abrechnung 'stueck': Sekunden je Teil
+  chargengroesse: Number,   // bei 'charge': Teile je Durchgang
+  chargenzeitMin: Number,   // bei 'charge': Minuten je Durchgang
+  ruestzeitMin: Number,     // bei 'auftrag': Minuten je Auftrag
+  bemerkung: String,
+}, { _id: false });
+
 // Ein Eintrag pro Artikel - Prozessdaten (Maschine/Kavität/...) und Stückliste
 // (Bezeichnung/Komponenten) gehören zusammen, statt in zwei getrennten
 // Sammlungen zu leben, die separat gepflegt und abgeglichen werden mussten.
@@ -65,6 +78,8 @@ const artikelSchema = new mongoose.Schema({
   zeitProHundert: Number,
   komponenten: [komponenteSchema],
   plp: [plpEintragSchema],
+  // Arbeitsplan für die Kalkulation - welche Schritte dieser Artikel durchläuft.
+  arbeitsgaenge: [artikelArbeitsgangSchema],
 }, { _id: false });
 
 const artikelstammSchema = new mongoose.Schema({

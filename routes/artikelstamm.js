@@ -189,7 +189,7 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     const entry = doc.artikel.find(a => a.material === req.params.material);
     if (!entry) return res.status(404).json({ error: 'Artikel nicht gefunden' });
 
-    const { material, bezeichnung, dbType, maschine, kavitaet, rundenProSchicht, zeitProHundert, komponenten, plp } = req.body;
+    const { material, bezeichnung, dbType, maschine, kavitaet, rundenProSchicht, zeitProHundert, komponenten, plp, arbeitsgaenge } = req.body;
     if (material !== undefined && material !== entry.material) {
       if (doc.artikel.some(a => a.material === material)) {
         return res.status(409).json({ error: `Artikel ${material} existiert bereits` });
@@ -204,6 +204,8 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     if (zeitProHundert !== undefined) entry.zeitProHundert = zeitProHundert;
     if (komponenten !== undefined) entry.komponenten = komponenten;
     if (plp !== undefined) entry.plp = plp;
+    // Arbeitsplan für die Kalkulation (siehe models/Arbeitsgang.js).
+    if (arbeitsgaenge !== undefined) entry.arbeitsgaenge = arbeitsgaenge;
 
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
