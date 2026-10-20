@@ -9,16 +9,30 @@ const router = express.Router();
 // Beim ersten Aufruf mit den Schritten befüllen, die bei Fritsch tatsächlich
 // vorkommen - die Werte sind Platzhalter und werden in der Oberfläche gepflegt.
 const GRUNDKATALOG = [
-  { schluessel: 'formgebung', name: 'Formgebung (Spritzen)', abrechnung: 'stueck', reihenfolge: 10,
-    bemerkung: 'Zeit kommt aus Kavität und Zeit pro 100 im Artikelstamm' },
-  { schluessel: 'ruesten', name: 'Rüsten / Werkzeugwechsel', abrechnung: 'auftrag', reihenfolge: 20 },
-  { schluessel: 'entgraten_kryo', name: 'Kryogenes Entgraten', abrechnung: 'charge', reihenfolge: 30 },
-  { schluessel: 'nachheizen', name: 'Nachheizen / Tempern', abrechnung: 'charge', reihenfolge: 40 },
-  { schluessel: 'waschen', name: 'Waschen', abrechnung: 'charge', reihenfolge: 50 },
-  { schluessel: 'stechen', name: 'Stechen', abrechnung: 'stueck', reihenfolge: 60 },
-  { schluessel: 'sichtkontrolle', name: 'Sichtkontrolle 100 %', abrechnung: 'stueck', reihenfolge: 70,
-    bemerkung: 'Fällt bei jedem Artikel an' },
-  { schluessel: 'verpacken', name: 'Verpacken', abrechnung: 'stueck', reihenfolge: 80 },
+  { schluessel: 'ruesten_personell', name: 'Rüsten (personell)', abrechnung: 'auftrag', reihenfolge: 10,
+    rolle: 'einrichter', personalanteilProzent: 100, maschinengebunden: true,
+    bemerkung: 'Werkzeug aus- und einbauen, anschließen - Einrichter gebunden, Maschine steht' },
+  { schluessel: 'aufheizen', name: 'Aufheizen Werkzeug/Maschine', abrechnung: 'auftrag', reihenfolge: 20,
+    rolle: 'keine', personalanteilProzent: 0, maschinengebunden: true,
+    bemerkung: 'Maschine heizt allein hoch - kostet Maschinenzeit und Energie, aber kein Personal' },
+  { schluessel: 'formgebung', name: 'Formgebung (Spritzen)', abrechnung: 'stueck', reihenfolge: 30,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true,
+    bemerkung: 'Zeit kommt aus Kavität und Zeit pro 100 im Artikelstamm; Personalanteil = 100 / bediente Maschinen' },
+  { schluessel: 'entgraten_kryo', name: 'Kryogenes Entgraten', abrechnung: 'charge', reihenfolge: 40,
+    rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true,
+    bemerkung: 'Personal nur zum Be- und Entladen' },
+  { schluessel: 'nachheizen', name: 'Nachheizen / Tempern', abrechnung: 'charge', reihenfolge: 50,
+    rolle: 'keine', personalanteilProzent: 10, maschinengebunden: true,
+    bemerkung: 'Ofen läuft allein, Personal nur zum Beschicken' },
+  { schluessel: 'waschen', name: 'Waschen', abrechnung: 'charge', reihenfolge: 60,
+    rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true },
+  { schluessel: 'stechen', name: 'Stechen', abrechnung: 'stueck', reihenfolge: 70,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true },
+  { schluessel: 'sichtkontrolle', name: 'Sichtkontrolle 100 %', abrechnung: 'stueck', reihenfolge: 80,
+    rolle: 'kontrolle', personalanteilProzent: 100, maschinengebunden: false,
+    bemerkung: 'Fällt bei jedem Artikel an - reine Personalzeit' },
+  { schluessel: 'verpacken', name: 'Verpacken', abrechnung: 'stueck', reihenfolge: 90,
+    rolle: 'kontrolle', personalanteilProzent: 100, maschinengebunden: false },
 ];
 
 async function katalog() {
@@ -53,7 +67,8 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 router.patch('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const erlaubt = ['name', 'abrechnung', 'standardzeitSek', 'standardChargengroesse',
-      'standardChargenzeitMin', 'standardRuestzeitMin', 'bemerkung', 'reihenfolge', 'aktiv'];
+      'standardChargenzeitMin', 'standardRuestzeitMin', 'bemerkung', 'reihenfolge', 'aktiv',
+      'rolle', 'personalanteilProzent', 'maschinengebunden'];
     const aenderung = {};
     erlaubt.forEach(f => { if (req.body[f] !== undefined) aenderung[f] = req.body[f]; });
     const doc = await Arbeitsgang.findByIdAndUpdate(req.params.id, aenderung, { new: true });

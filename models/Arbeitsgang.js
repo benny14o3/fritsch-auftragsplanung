@@ -22,6 +22,17 @@ const arbeitsgangSchema = new mongoose.Schema({
   standardChargengroesse: { type: Number, default: 0 }, // bei 'charge': Teile je Durchgang
   standardChargenzeitMin: { type: Number, default: 0 }, // bei 'charge': Minuten je Durchgang
   standardRuestzeitMin: { type: Number, default: 0 },   // bei 'auftrag': Minuten je Auftrag
+  // WER ist während des Arbeitsgangs gebunden - davon hängt ab, welcher
+  // Lohnsatz gerechnet wird. 'keine' heißt: die Anlage läuft allein, es
+  // entstehen nur Maschinenkosten (z.B. Aufheizen, Ofen über Nacht).
+  rolle: { type: String, enum: ['einrichter', 'maschinenbediener', 'kontrolle', 'keine'], default: 'maschinenbediener' },
+  // Anteil der Zeit, in der die Person tatsächlich gebunden ist. Beim
+  // Beschicken eines Ofens steht niemand daneben, während er läuft.
+  personalanteilProzent: { type: Number, default: 100 },
+  // Belegt der Arbeitsgang die Maschine/Anlage? Dann zählt der
+  // Maschinenstundensatz mit - beim Aufheizen steht die Spritzmaschine still
+  // und verdient nichts, kostet aber.
+  maschinengebunden: { type: Boolean, default: true },
   bemerkung: { type: String, default: '' },
   reihenfolge: { type: Number, default: 0 },
   aktiv: { type: Boolean, default: true },

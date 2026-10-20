@@ -172,7 +172,19 @@ router.post('/materialien', authMiddleware, adminMiddleware, async (req, res) =>
     if (kavitaet !== undefined) entry.kavitaet = kavitaet;
     if (rundenProSchicht !== undefined) entry.rundenProSchicht = rundenProSchicht;
     if (zeitProHundert !== undefined) entry.zeitProHundert = zeitProHundert;
-    if (komponenten !== undefined) entry.komponenten = komponenten;
+    if (komponenten !== undefined) {
+      // Die Stückliste wird auch als Text bearbeitet (Artikelnummer | Bezeichnung
+      // | Menge). Kommen die Kalkulationsfelder dabei nicht mit, die bisherigen
+      // Werte je Komponente behalten, statt sie stillschweigend zu verlieren.
+      const schluessel = k => `${k.artikelnummer || ''}|${k.bezeichnung || ''}`;
+      const alte = new Map((entry.komponenten || []).map(k => [schluessel(k), k]));
+      entry.komponenten = komponenten.map(k => {
+        if (k.beschaffung !== undefined) return k;
+        const alt = alte.get(schluessel(k));
+        if (!alt) return k;
+        return { ...k, beschaffung: alt.beschaffung, preis: alt.preis, preisEinheit: alt.preisEinheit, gewichtG: alt.gewichtG };
+      });
+    }
 
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
@@ -202,7 +214,19 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     if (kavitaet !== undefined) entry.kavitaet = kavitaet;
     if (rundenProSchicht !== undefined) entry.rundenProSchicht = rundenProSchicht;
     if (zeitProHundert !== undefined) entry.zeitProHundert = zeitProHundert;
-    if (komponenten !== undefined) entry.komponenten = komponenten;
+    if (komponenten !== undefined) {
+      // Die Stückliste wird auch als Text bearbeitet (Artikelnummer | Bezeichnung
+      // | Menge). Kommen die Kalkulationsfelder dabei nicht mit, die bisherigen
+      // Werte je Komponente behalten, statt sie stillschweigend zu verlieren.
+      const schluessel = k => `${k.artikelnummer || ''}|${k.bezeichnung || ''}`;
+      const alte = new Map((entry.komponenten || []).map(k => [schluessel(k), k]));
+      entry.komponenten = komponenten.map(k => {
+        if (k.beschaffung !== undefined) return k;
+        const alt = alte.get(schluessel(k));
+        if (!alt) return k;
+        return { ...k, beschaffung: alt.beschaffung, preis: alt.preis, preisEinheit: alt.preisEinheit, gewichtG: alt.gewichtG };
+      });
+    }
     if (plp !== undefined) entry.plp = plp;
     // Arbeitsplan für die Kalkulation (siehe models/Arbeitsgang.js).
     if (arbeitsgaenge !== undefined) entry.arbeitsgaenge = arbeitsgaenge;

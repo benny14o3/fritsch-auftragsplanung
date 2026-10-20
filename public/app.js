@@ -1290,7 +1290,9 @@ function openArticleDetailModal(material) {
     articleDetailMaterial = material;
     articleDetailPlpRows = (article.plp || []).map(r => ({ ...r }));
     articleDetailArbeitsgaenge = (article.arbeitsgaenge || []).map(r => ({ ...r }));
+    articleDetailKomponenten = (article.komponenten || []).map(k => ({ ...k }));
     renderArticleDetailArbeitsgaenge();
+    renderArticleDetailMaterial();
     document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
     document.getElementById('articleDetailNote').textContent = '';
     document.getElementById('articleDetailExportNote').textContent = '';
@@ -1420,6 +1422,71 @@ let arbeitsgangKatalog = [];
 let articleDetailArbeitsgaenge = [];
 
 const ABRECHNUNG_LABEL = { stueck: 'je Stück', charge: 'je Charge', auftrag: 'je Auftrag' };
+const ROLLE_LABEL = { einrichter: 'Einrichter', maschinenbediener: 'Bediener', kontrolle: 'Kontrolle', keine: 'ohne Personal' };
+
+// --- Material je Artikel (Zukauf oder beigestellt) ---
+// Grundlage ist die Stückliste des Artikels: beigestelltes Material kostet
+// nichts, zugekaufte Mischung und Trägerteile gehen mit ihrem Preis in die
+// Kalkulation ein.
+let articleDetailKomponenten = [];
+
+function renderArticleDetailMaterial() {
+    const box = document.getElementById('articleDetailMaterial');
+    if (!box) return;
+    if (articleDetailKomponenten.length === 0) {
+        box.innerHTML = '<p class="modal-sub">Für diesen Artikel ist keine Stückliste hinterlegt - ohne Stückliste gibt es nichts zu bepreisen.</p>';
+        return;
+    }
+
+    box.innerHTML = articleDetailKomponenten.map((k, idx) => {
+        const zukauf = k.beschaffung === 'zukauf';
+        const einheit = k.preisEinheit || 'stueck';
+        const felder = !zukauf ? '' : `
+            <label>Preis
+                <input type="number" min="0" step="any" data-material-feld="preis" data-material-index="${idx}" value="${k.preis ?? ''}">
+                €
+            </label>
+            <label>je
+                <select data-material-feld="preisEinheit" data-material-index="${idx}">
+                    <option value="stueck"${einheit === 'stueck' ? ' selected' : ''}>Stück</option>
+                    <option value="hundert"${einheit === 'hundert' ? ' selected' : ''}>100 Stück</option>
+                    <option value="kg"${einheit === 'kg' ? ' selected' : ''}>Kilo</option>
+                </select>
+            </label>
+            ${einheit === 'kg' ? `<label>Einsatzgewicht
+                <input type="number" min="0" step="any" data-material-feld="gewichtG" data-material-index="${idx}" value="${k.gewichtG ?? ''}">
+                g/Teil
+            </label>` : ''}`;
+        return `
+        <div class="material-zeile${zukauf ? ' zukauf' : ''}">
+            <div class="material-kopf">
+                <input type="checkbox" data-material-zukauf="${idx}" ${zukauf ? 'checked' : ''}>
+                <span class="material-name">${escapeHtml(k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung || ''}` : (k.bezeichnung || ''))}</span>
+                <span class="material-marke${zukauf ? ' zukauf' : ''}">${zukauf ? 'Zukauf' : 'beigestellt'}</span>
+            </div>
+            <div class="material-felder">${felder}</div>
+        </div>`;
+    }).join('');
+
+    box.querySelectorAll('[data-material-zukauf]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const k = articleDetailKomponenten[Number(cb.dataset.materialZukauf)];
+            k.beschaffung = cb.checked ? 'zukauf' : 'beigestellt';
+            if (!cb.checked) { k.preis = undefined; k.gewichtG = undefined; }
+            else if (!k.preisEinheit) k.preisEinheit = 'stueck';
+            renderArticleDetailMaterial();
+        });
+    });
+    box.querySelectorAll('[data-material-feld]').forEach(el => {
+        const ereignis = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(ereignis, () => {
+            const k = articleDetailKomponenten[Number(el.dataset.materialIndex)];
+            const feld = el.dataset.materialFeld;
+            k[feld] = el.tagName === 'SELECT' ? el.value : (el.value === '' ? undefined : Number(el.value));
+            if (feld === 'preisEinheit') renderArticleDetailMaterial();
+        });
+    });
+}
 
 async function ladeArbeitsgangKatalog() {
     try {
@@ -1466,6 +1533,7 @@ function renderArticleDetailArbeitsgaenge() {
                 <input type="checkbox" data-arbeitsgang-an="${g.schluessel}" ${gewaehlt ? 'checked' : ''}>
                 <span class="arbeitsgang-name">${escapeHtml(g.name)}</span>
                 <span class="arbeitsgang-art ${g.abrechnung}">${ABRECHNUNG_LABEL[g.abrechnung]}</span>
+                <span class="arbeitsgang-rolle">${ROLLE_LABEL[g.rolle] || ''}${g.personalanteilProzent > 0 && g.personalanteilProzent < 100 ? ` (${g.personalanteilProzent} %)` : ''}${g.maschinengebunden ? ' · Maschine belegt' : ''}</span>
             </div>
             <div class="arbeitsgang-felder">${felder}</div>
             ${gewaehlt && g.bemerkung ? `<div class="arbeitsgang-hinweis">${escapeHtml(g.bemerkung)}</div>` : ''}
@@ -1851,6 +1919,7 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
             body: JSON.stringify({
                 plp: articleDetailPlpRows.filter(r => (r.bezeichnung || '').trim()),
                 arbeitsgaenge: articleDetailArbeitsgaenge,
+                komponenten: articleDetailKomponenten,
             }),
         });
         const data = await res.json();

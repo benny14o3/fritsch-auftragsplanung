@@ -148,6 +148,19 @@
         .arbeitsgang-felder label { font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 4px; }
         .arbeitsgang-felder input { width: 90px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
         .arbeitsgang-hinweis { font-size: 12px; color: #94a3b8; width: 100%; }
+        .arbeitsgang-rolle { font-size: 11px; color: #64748b; white-space: nowrap; }
+        .material-zeile { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+        .material-zeile:last-child { border-bottom: none; }
+        .material-zeile.zukauf { background: #fffbeb; border-radius: 6px; }
+        .material-kopf { display: flex; align-items: center; gap: 8px; min-width: 260px; flex: 1; }
+        .material-kopf input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; }
+        .material-name { font-weight: 600; font-size: 14px; }
+        .material-marke { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: #dcfce7; color: #15803d; white-space: nowrap; }
+        .material-marke.zukauf { background: #fef3c7; color: #92400e; }
+        .material-felder { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .material-felder label { font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 4px; }
+        .material-felder input { width: 90px; padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
+        .material-felder select { padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
 
         /* Datensicherung */
         .backup-stand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
@@ -1014,6 +1027,12 @@
                 <div class="upload-text">📤 QPA hochladen (PDF/Bild)</div>
                 <input type="file" id="articleDetailQpaFile" accept=".pdf,image/*">
             </label>
+        </div>
+
+        <div class="modal-section">
+            <h4>Material für die Kalkulation</h4>
+            <p class="modal-sub" style="margin-bottom: 12px;">Aus der Stückliste. Standard ist <b>beigestellt</b> - dann kostet das Material nichts. Was ihr selbst einkauft (Mischung, Trägerteile), anhaken und den Preis eintragen.</p>
+            <div id="articleDetailMaterial"></div>
         </div>
 
         <div class="modal-section">

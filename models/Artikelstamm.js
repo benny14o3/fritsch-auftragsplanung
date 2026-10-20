@@ -4,6 +4,15 @@ const komponenteSchema = new mongoose.Schema({
   artikelnummer: String,
   bezeichnung: String,
   menge: Number,
+  // Für die Kalkulation: Material wird oft vom Kunden beigestellt und kostet
+  // uns dann nichts. Mischung und Trägerteile werden aber auch zugekauft -
+  // dann zählt der Preis mit.
+  beschaffung: { type: String, enum: ['beigestellt', 'zukauf'], default: 'beigestellt' },
+  preis: Number,
+  // Worauf sich der Preis bezieht: je Kilo (Mischung, zusammen mit gewichtG),
+  // je Stück (Trägerteil) oder je 100 Stück.
+  preisEinheit: { type: String, enum: ['kg', 'stueck', 'hundert'], default: 'stueck' },
+  gewichtG: Number, // Einsatzgewicht je Teil in Gramm, nur bei Preis je Kilo
 }, { _id: false });
 
 // Zeichnung und Einstelldatenblatt liegen in einer eigenen Collection
