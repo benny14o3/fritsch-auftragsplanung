@@ -11,6 +11,7 @@ const authRoutes = require('./routes/auth');
 const orderRoutes = require('./routes/orders');
 const artikelstammRoutes = require('./routes/artikelstamm');
 const shopfloorRoutes = require('./routes/shopfloor');
+const backupRoutes = require('./routes/backup');
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/artikelstamm', artikelstammRoutes);
 app.use('/api/shopfloor', shopfloorRoutes);
+app.use('/api/backup', backupRoutes);
 
 // Frontend
 app.get('/', (req, res) => {

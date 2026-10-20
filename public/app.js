@@ -155,7 +155,7 @@ function showPage(page) {
 
     if (BOARD_PAGES.includes(page)) loadExistingBoard();
     if (ARCHIV_PAGES[page]) fetchArchiv(ARCHIV_PAGES[page]);
-    if (page === 'databases') fetchWerker();
+    if (page === 'databases') { fetchWerker(); fetchBackupStand(); }
 }
 
 async function loadExistingBoard() {
@@ -1769,6 +1769,75 @@ document.getElementById('articleDetailFskHistorieBtn')?.addEventListener('click'
         note.textContent = 'Export fehlgeschlagen.';
     }
 });
+
+// --- Datensicherung ---
+// Die Daten liegen bei MongoDB Atlas; ob dort Snapshots laufen, hängt am Tarif.
+// Deshalb eine eigene Sicherung, die jemand bewusst auslöst und ablegt. Die
+// Anzeige erinnert daran, wenn die letzte zu lange her ist.
+
+const BACKUP_WARNUNG_TAGE = 7;
+
+function mbText(bytes) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function fetchBackupStand() {
+    if (currentUser?.role !== 'admin') return;
+    const box = document.getElementById('backupStand');
+    if (!box) return;
+    try {
+        const res = await fetch(`${API_URL}/backup/stand`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        const stand = await res.json();
+        const letzte = stand.letztesBackup?.zeitpunkt ? new Date(stand.letztesBackup.zeitpunkt) : null;
+        const tage = letzte ? Math.floor((Date.now() - letzte) / 86400000) : null;
+        const stufe = !letzte ? 'nie' : tage >= BACKUP_WARNUNG_TAGE ? 'alt' : 'frisch';
+        const wann = !letzte ? 'Es wurde noch nie eine Sicherung heruntergeladen.'
+            : tage === 0 ? `Letzte Sicherung: <b>heute</b>, ${letzte.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr`
+            : `Letzte Sicherung: <b>vor ${tage} ${tage === 1 ? 'Tag' : 'Tagen'}</b> (${letzte.toLocaleDateString('de-DE')})`;
+        const zusatz = stufe === 'alt' ? ' - Zeit für eine neue.' : stufe === 'nie' ? ' Bitte jetzt einmal sichern.' : '';
+        box.className = `backup-stand ${stufe}`;
+        box.innerHTML = `${stufe === 'frisch' ? '✅' : '⚠'} ${wann}${zusatz}
+            <span style="color:#64748b;font-weight:400;">Datenbestand: ${mbText(stand.bytes)}</span>`;
+    } catch (err) { /* Stand konnte nicht geladen werden */ }
+}
+
+async function ladeBackup(mitDateien) {
+    const note = document.getElementById('backupNote');
+    const knoepfe = [document.getElementById('backupBtn'), document.getElementById('backupOhneDateienBtn')];
+    knoepfe.forEach(b => { if (b) b.disabled = true; });
+    note.style.color = '#64748b';
+    note.textContent = 'Sicherung wird erstellt...';
+    try {
+        const res = await fetch(`${API_URL}/backup${mitDateien ? '' : '?dateien=0'}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Fehlgeschlagen');
+        const blob = await res.blob();
+        // Dateinamen aus der Antwort übernehmen, damit Datum und Umfang drinstehen.
+        const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1]
+            || `fritsch-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        note.style.color = '#15803d';
+        note.textContent = `✅ ${name} (${mbText(blob.size)}) - bitte auf ein eigenes Laufwerk legen.`;
+        fetchBackupStand();
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = `Sicherung fehlgeschlagen: ${err.message}`;
+    } finally {
+        knoepfe.forEach(b => { if (b) b.disabled = false; });
+    }
+}
+
+document.getElementById('backupBtn')?.addEventListener('click', () => ladeBackup(true));
+document.getElementById('backupOhneDateienBtn')?.addEventListener('click', () => ladeBackup(false));
 
 // --- Werker-Konten (eigener Login für /shopfloor, getrennt von den Büro-Konten) ---
 

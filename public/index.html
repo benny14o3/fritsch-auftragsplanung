@@ -133,6 +133,13 @@
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
         /* Sollmenge laut Bestellung + tatsächlich ausgelieferte Teilsendungen */
+        /* Datensicherung */
+        .backup-stand { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .backup-stand.frisch { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; }
+        .backup-stand.alt { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+        .backup-stand.nie { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+        .backup-stand b { font-weight: 700; }
+
         /* Schicht-Vorschau im Zeitplan */
         .schicht-schalter { display: inline-flex; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
         .schicht-btn { border: none; background: white; color: #475569; font-size: 12px; font-weight: 600; padding: 7px 10px; cursor: pointer; border-right: 1px solid #e2e8f0; font-family: inherit; white-space: nowrap; }
@@ -905,6 +912,17 @@
                 </div>
                 <p id="databaseArticleNote" style="margin-top: 12px; font-size: 13px;"></p>
             </div>
+            <div class="card admin-only hidden">
+                <h3>Datensicherung</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Lädt den kompletten Datenbestand als eine Datei herunter: Aufträge, Artikelstamm, Zeichnungen, Einstelldatenblätter, QPA, Wareneingangs-Fotos und die Konten. Die Datei gehört auf ein eigenes Laufwerk, nicht in den Download-Ordner - sie enthält auch die (verschlüsselten) Passwörter.</p>
+                <div id="backupStand" class="backup-stand"></div>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+                    <button class="btn btn-primary" id="backupBtn" style="width: auto;">⬇ Sicherung herunterladen</button>
+                    <button class="btn btn-secondary" id="backupOhneDateienBtn" style="width: auto;">Nur Planungsdaten (ohne Dateien)</button>
+                    <span id="backupNote" style="font-size: 13px; color: #64748b;"></span>
+                </div>
+            </div>
+
             <div class="card">
                 <h3>Werker-Konten (Shopfloor-Zugang)</h3>
                 <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Eigener Login für <a href="/shopfloor" target="_blank" rel="noopener">/shopfloor</a> - getrennt von den Büro-Konten. Kürzel + PIN werden am Shopfloor-Bildschirm eingegeben.</p>
