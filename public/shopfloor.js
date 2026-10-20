@@ -96,9 +96,23 @@ async function fetchBoard() {
     try {
         const res = await fetch(`${API_URL}/orders`, { headers: authHeaders() });
         if (res.status === 401) return handleAuthExpired();
-        boardOrders = await res.json();
+        // Fehler des Servers nicht als leere Liste durchreichen - sonst steht
+        // eine leere Tafel da und niemand weiß, ob gerade nichts läuft oder ob
+        // etwas kaputt ist.
+        if (!res.ok) return zeigeLadefehler();
+        const daten = await res.json();
+        if (!Array.isArray(daten)) return zeigeLadefehler();
+        boardOrders = daten;
         renderBoard();
-    } catch (err) { /* stiller Retry beim nächsten Poll */ }
+    } catch (err) {
+        zeigeLadefehler();
+    }
+}
+
+function zeigeLadefehler() {
+    const list = document.getElementById('orderList');
+    if (!list || boardOrders.length > 0) return; // alte Liste stehen lassen
+    list.innerHTML = '<div class="empty-note">⚠ Die Aufträge konnten nicht geladen werden.<br><span style="font-size:12px;">Der nächste Versuch läuft automatisch. Bleibt es dabei, bitte im Büro Bescheid geben.</span></div>';
 }
 
 function fortschritt(order) {

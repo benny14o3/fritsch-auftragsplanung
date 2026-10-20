@@ -204,6 +204,15 @@ orderSchema.pre('save', function(next) {
   next();
 });
 
+// Ohne diese Indizes muss MongoDB zum Sortieren alle Dokumente in den Speicher
+// laden. Da in den Aufträgen die Wareneingangs-Fotos stecken (zusammen über
+// 80 MB), lief das in die 32-MB-Grenze für Sortierungen ohne Index: die
+// Shopfloor-Tafel bekam nur noch einen Fehler statt der Auftragsliste.
+orderSchema.index({ position: 1 });
+orderSchema.index({ phase: 1, dbType: 1 });
+orderSchema.index({ artikelnummer: 1 });
+orderSchema.index({ auftragsnummer: 1 });
+
 // Jede Änderung an einem Auftrag meldet sich an die offenen Bildschirme (siehe
 // lib/orderEvents.js). Bewusst am Modell statt in den Routen: so kann keine
 // Route - auch keine künftige und keine aus dem Shopfloor - es vergessen.
