@@ -112,7 +112,7 @@ router.get('/maschinen', shopfloorAuthMiddleware, (req, res) => res.json(MASCHIN
 router.get('/orders', shopfloorAuthMiddleware, async (req, res) => {
   try {
     const orders = await Order.find({ phase: { $in: ['produktion', 'endbearbeitung'] } })
-      .select('auftragsnummer artikelnummer beschreibung menge dbType maschineId maschineId2 startDatum endDatum status phase laufzettel erstfreigabe')
+      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge dbType maschineId maschineId2 startDatum endDatum status phase laufzettel erstfreigabe komponenten produktion manuellEingeplant')
       .sort({ position: 1 });
     res.json(orders);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -201,6 +201,51 @@ router.get('/orders/aktuell', shopfloorAuthMiddleware, async (req, res) => {
         faelligePruefungen: faelligkeit.filter(p => p.status === 'faellig').length,
       };
     }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Einstieg für die QS: alle Aufträge, bei denen eine Endabnahme ansteht -
+// sortiert nach Dringlichkeit (fertig produziert zuerst). Muss vor
+// GET /orders/:orderId stehen, sonst gilt "endabnahme" als Auftrags-ID.
+router.get('/orders/endabnahme', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const jetzt = new Date();
+    const orders = await Order.find({ phase: { $in: ['produktion', 'endbearbeitung'] } })
+      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge dbType maschineId phase startDatum endDatum produktion massungen erstfreigabe')
+      .sort({ position: 1 });
+
+    const stamm = await Artikelstamm.findOne().select('artikel.material artikel.plp');
+    const plpJeMaterial = new Map((stamm?.artikel || []).map(a => [a.material, a.plp || []]));
+
+    const liste = orders.map(order => {
+      const plp = plpJeMaterial.get(order.artikelnummer) || [];
+      const stand = endabnahmeStand(order, plp, jetzt);
+      if (!stand.erforderlich) return null;
+      const offen = stand.punkte.filter(p => !p.erledigt).length;
+      if (offen === 0) return null; // vollständig abgenommen
+      return {
+        _id: order._id,
+        auftragsnummer: order.auftragsnummer,
+        artikelnummer: order.artikelnummer,
+        beschreibung: order.beschreibung,
+        dbType: order.dbType,
+        maschineId: order.maschineId,
+        phase: order.phase,
+        endDatum: order.endDatum,
+        offenePunkte: offen,
+        punkteGesamt: stand.punkte.length,
+        mengeFertig: stand.mengeFertig,
+        gemeldet: stand.gemeldet,
+        soll: stand.soll,
+      };
+    }).filter(Boolean);
+
+    // Fertig produzierte zuerst, danach nach Fortschritt
+    liste.sort((a, b) => {
+      if (a.mengeFertig !== b.mengeFertig) return a.mengeFertig ? -1 : 1;
+      return (b.gemeldet / (b.soll || 1)) - (a.gemeldet / (a.soll || 1));
+    });
+    res.json(liste);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

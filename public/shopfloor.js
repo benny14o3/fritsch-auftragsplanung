@@ -10,6 +10,7 @@ let currentUser = JSON.parse(localStorage.getItem('shopfloorUser') || 'null');
 const FEHLERARTEN = ['Luft-, Fließfehler', 'Wkzg.-Verschmutzung', 'Blasen', 'Material fehlt', 'Zusatzteil/Feder', 'Dichtkantenfehler', 'Stechfehler', 'Doppelschnitt', 'Fremdkörper/Stippen', 'Werkzeugfehler', 'Abfall', 'Platzer', 'Blech n.i.O.', 'Rohling', 'Sonstige'];
 
 let boardOrders = [];
+let boardSuche = '';
 let activeTab = 'Elastomer';
 let activeOrderId = null;
 let boardPollTimer = null;
@@ -74,6 +75,11 @@ document.querySelectorAll('.tab').forEach(tab => {
     });
 });
 
+document.getElementById('boardSucheInput')?.addEventListener('input', (e) => {
+    boardSuche = e.target.value;
+    renderBoard();
+});
+
 document.getElementById('refreshBtn').addEventListener('click', () => {
     if (activeOrderId) fetchDetail(activeOrderId);
     else if (!document.getElementById('maschinenView').classList.contains('hidden')) openMaschinenModus();
@@ -87,6 +93,7 @@ document.getElementById('backBtn').addEventListener('click', () => {
     stopDetailPolling();
     if (detailHerkunft === 'produktion') { openProduktion(); return; }
     if (detailHerkunft === 'maschine') { openMaschinenModus(); return; }
+    if (detailHerkunft === 'endabnahme') { openEndabnahmeUebersicht(); return; }
     document.getElementById('boardView').classList.remove('hidden');
     document.getElementById('topbarTitle').textContent = 'Shopfloor';
     fetchBoard();
@@ -121,37 +128,117 @@ function fortschritt(order) {
     return { done, total: stationen.length };
 }
 
+// Läuft der Auftrag schon? Entweder wurden Runden gemeldet oder der geplante
+// Start liegt in der Vergangenheit.
+function istBegonnen(order) {
+    if ((order.produktion || []).length > 0) return true;
+    return !!order.startDatum && new Date(order.startDatum) <= new Date();
+}
+
+function boardSuchtreffer(order) {
+    const suche = boardSuche.trim().toLowerCase();
+    if (!suche) return true;
+    return [order.auftragsnummer, order.artikelnummer, order.beschreibung]
+        .filter(Boolean).some(f => String(f).toLowerCase().includes(suche));
+}
+
+// Die Tafel zeigt je Bereich schnell 70 Aufträge - ohne Ordnung findet dort
+// niemand seinen. Deshalb nach Maschine gruppiert, begonnene zuerst, dazu eine
+// Suche über Auftrag, Artikel und Bezeichnung.
 function renderBoard() {
     const list = document.getElementById('orderList');
-    const gefiltert = boardOrders.filter(o => o.dbType === activeTab);
+    const imBereich = boardOrders.filter(o => o.dbType === activeTab);
+    const gefiltert = imBereich.filter(boardSuchtreffer);
+
+    const zaehler = document.getElementById('boardAnzahl');
+    if (zaehler) {
+        const laufend = imBereich.filter(istBegonnen).length;
+        zaehler.textContent = gefiltert.length === imBereich.length
+            ? `${imBereich.length} Aufträge · ${laufend} begonnen`
+            : `${gefiltert.length} von ${imBereich.length} Aufträgen`;
+    }
+
     if (gefiltert.length === 0) {
-        list.innerHTML = '<div class="empty-note">Keine laufenden Aufträge in diesem Bereich.</div>';
+        list.innerHTML = `<div class="empty-note">${imBereich.length === 0 ? 'Keine laufenden Aufträge in diesem Bereich.' : 'Kein Treffer zur Suche.'}</div>`;
         return;
     }
-    list.innerHTML = '';
-    gefiltert.forEach(order => {
-        const { done, total } = fortschritt(order);
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        const card = document.createElement('div');
-        card.className = `order-card status-${order.phase}`;
-        card.innerHTML = `
-            <div class="row1">
-                <span class="artikel">${order.artikelnummer || '–'}</span>
-                <span class="auftrag">${order.auftragsnummer || ''}</span>
-            </div>
-            <div class="desc">${order.beschreibung || ''}</div>
-            <div class="progress-row">
-                <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
-                <div class="progress-label">${done}/${total} Stationen</div>
-            </div>
-        `;
-        card.addEventListener('click', () => openDetail(order._id));
-        list.appendChild(card);
+
+    // Nach Maschine gruppieren; Gruppen mit begonnenen Aufträgen nach oben.
+    const gruppen = new Map();
+    gefiltert.forEach(o => {
+        const schluessel = o.maschineId || '';
+        if (!gruppen.has(schluessel)) gruppen.set(schluessel, []);
+        gruppen.get(schluessel).push(o);
     });
+    const sortiert = [...gruppen.entries()].sort((a, b) => {
+        const laufendA = a[1].some(istBegonnen) ? 0 : 1;
+        const laufendB = b[1].some(istBegonnen) ? 0 : 1;
+        if (laufendA !== laufendB) return laufendA - laufendB;
+        if (!a[0]) return 1; // "Nicht zugewiesen" ans Ende
+        if (!b[0]) return -1;
+        return a[0].localeCompare(b[0]);
+    });
+
+    list.innerHTML = '';
+    sortiert.forEach(([maschineId, auftraege]) => {
+        const kopf = document.createElement('div');
+        kopf.className = 'board-gruppe';
+        const laufend = auftraege.filter(istBegonnen).length;
+        kopf.innerHTML = `<span>${maschineId ? maschinenName(maschineId) : 'Ohne Maschine'}</span>
+            <span class="board-gruppe-zahl">${auftraege.length}${laufend ? ` · ${laufend} begonnen` : ''}</span>`;
+        list.appendChild(kopf);
+
+        auftraege
+            .sort((a, b) => {
+                const la = istBegonnen(a) ? 0 : 1;
+                const lb = istBegonnen(b) ? 0 : 1;
+                if (la !== lb) return la - lb;
+                return new Date(a.startDatum || '2100-01-01') - new Date(b.startDatum || '2100-01-01');
+            })
+            .forEach(order => list.appendChild(buildBoardKarte(order)));
+    });
+}
+
+function buildBoardKarte(order) {
+    const { done, total } = fortschritt(order);
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const begonnen = istBegonnen(order);
+    const fehlendeKomponenten = (order.komponenten || []).filter(k => !k.wareneingang).length;
+
+    const marken = [];
+    if (begonnen) marken.push('<span class="board-marke laeuft">läuft</span>');
+    if (order.phase === 'endbearbeitung') marken.push('<span class="board-marke endbearbeitung">Endbearbeitung</span>');
+    if (order.erstfreigabe?.erteilt) marken.push('<span class="board-marke frei">Erstfreigabe erteilt</span>');
+    else marken.push('<span class="board-marke offen">Erstfreigabe offen</span>');
+    if (fehlendeKomponenten > 0) marken.push(`<span class="board-marke fehlt">${fehlendeKomponenten} Komponente${fehlendeKomponenten === 1 ? '' : 'n'} offen</span>`);
+
+    const zeitraum = order.startDatum
+        ? `${new Date(order.startDatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} – ${order.endDatum ? new Date(order.endDatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : '?'}`
+        : 'kein Termin';
+
+    const card = document.createElement('div');
+    card.className = `order-card status-${order.phase}${begonnen ? ' karte-laeuft' : ''}`;
+    card.innerHTML = `
+        <div class="row1">
+            <span class="artikel">${order.artikelnummer || '–'}</span>
+            <span class="auftrag">${order.auftragsnummer || ''}</span>
+        </div>
+        <div class="desc">${order.beschreibung || ''}</div>
+        <div class="board-meta">📅 ${zeitraum} · ${order.gesamtmenge ?? order.menge ?? '–'} Stk</div>
+        <div class="board-marken">${marken.join('')}</div>
+        ${total > 0 ? `<div class="progress-row">
+            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+            <div class="progress-label">${done}/${total} Stationen</div>
+        </div>` : ''}
+    `;
+    card.addEventListener('click', () => openDetail(order._id));
+    return card;
 }
 
 function stopPolling() {
     clearInterval(boardPollTimer);
+    clearInterval(endabnahmePollTimer);
+    endabnahmePollTimer = null;
     clearInterval(maschinenPollTimer);
     maschinenPollTimer = null;
     stopDetailPolling();
@@ -336,6 +423,108 @@ function stopDetailPolling() {
     detailPollTimer = null;
 }
 
+// --- Endabnahme-Übersicht (QS) ---
+// Die QS muss nicht alle Aufträge durchsehen: hier stehen nur die, bei denen
+// noch eine Endabnahme offen ist, fertig produzierte zuerst.
+
+let endabnahmeOrders = [];
+let endabnahmePollTimer = null;
+
+document.getElementById('endabnahmeBtn')?.addEventListener('click', openEndabnahmeUebersicht);
+document.getElementById('endabnahmeBackBtn')?.addEventListener('click', closeEndabnahmeUebersicht);
+
+async function openEndabnahmeUebersicht() {
+    activeOrderId = null;
+    stopDetailPolling();
+    stopProduktionPolling();
+    clearInterval(maschinenPollTimer);
+    maschinenPollTimer = null;
+    ['boardView', 'detailView', 'produktionView', 'maschinenView'].forEach(id => document.getElementById(id).classList.add('hidden'));
+    document.getElementById('endabnahmeView').classList.remove('hidden');
+    document.getElementById('topbarTitle').textContent = 'Endabnahme';
+    await fetchEndabnahme();
+    clearInterval(endabnahmePollTimer);
+    endabnahmePollTimer = setInterval(fetchEndabnahme, 15000);
+}
+
+function closeEndabnahmeUebersicht() {
+    clearInterval(endabnahmePollTimer);
+    endabnahmePollTimer = null;
+    document.getElementById('endabnahmeView').classList.add('hidden');
+    document.getElementById('boardView').classList.remove('hidden');
+    document.getElementById('topbarTitle').textContent = 'Shopfloor';
+    fetchBoard();
+}
+
+async function fetchEndabnahme() {
+    try {
+        const res = await fetch(`${API_URL}/orders/endabnahme`, { headers: authHeaders() });
+        if (res.status === 401) return handleAuthExpired();
+        if (!res.ok) return;
+        const daten = await res.json();
+        if (!Array.isArray(daten)) return;
+        endabnahmeOrders = daten;
+        renderEndabnahmeUebersicht();
+    } catch (err) { /* nächster Versuch beim Poll */ }
+}
+
+function renderEndabnahmeUebersicht() {
+    const liste = document.getElementById('endabnahmeListe');
+    if (!liste) return;
+    // Aufträge, auf die noch keine einzige Runde gemeldet wurde, stehen
+    // frühestens in Wochen zur Abnahme an - die würden die Liste zumüllen.
+    const relevant = endabnahmeOrders.filter(o => o.mengeFertig || o.gemeldet > 0);
+    const nochNichtBegonnen = endabnahmeOrders.length - relevant.length;
+    if (relevant.length === 0) {
+        liste.innerHTML = `<div class="empty-note">Aktuell steht keine Endabnahme an.${nochNichtBegonnen ? `<br><span style="font-size:12px;">${nochNichtBegonnen} Aufträge mit Endabnahme sind eingeplant, aber noch nicht begonnen.</span>` : ''}</div>`;
+        return;
+    }
+
+    liste.innerHTML = '';
+    const bereit = relevant.filter(o => o.mengeFertig);
+    const laufend = relevant.filter(o => !o.mengeFertig);
+    const abschnitt = (titel, anzahl) => {
+        const kopf = document.createElement('div');
+        kopf.className = 'board-gruppe';
+        kopf.innerHTML = `<span>${titel}</span><span class="board-gruppe-zahl">${anzahl}</span>`;
+        liste.appendChild(kopf);
+    };
+    if (bereit.length) abschnitt('Abnahme möglich', bereit.length);
+    [...bereit, ...laufend].forEach((o, idx) => {
+        if (laufend.length && idx === bereit.length) abschnitt('Noch in Produktion', laufend.length);
+        const pct = o.soll > 0 ? Math.min(100, Math.round((o.gemeldet / o.soll) * 100)) : 0;
+        const card = document.createElement('div');
+        card.className = `order-card${o.mengeFertig ? ' karte-laeuft' : ''}`;
+        card.innerHTML = `
+            <div class="row1">
+                <span class="artikel">${o.artikelnummer || '–'}</span>
+                <span class="auftrag">${o.auftragsnummer || ''}</span>
+            </div>
+            <div class="desc">${o.beschreibung || ''}</div>
+            <div class="board-meta">${o.maschineId || 'ohne Maschine'} · ${o.phase === 'endbearbeitung' ? 'Endbearbeitung' : 'Produktion'}</div>
+            <div class="board-marken">
+                ${o.mengeFertig
+                    ? '<span class="board-marke bereit">fertig produziert - Abnahme möglich</span>'
+                    : `<span class="board-marke wartet">${o.gemeldet} von ${o.soll} Stk gemeldet</span>`}
+                <span class="board-marke offen">${o.offenePunkte} von ${o.punkteGesamt} Prüfungen offen</span>
+            </div>
+            <div class="progress-row">
+                <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+                <div class="progress-label">${pct} %</div>
+            </div>
+        `;
+        card.addEventListener('click', () => openDetail(o._id, 'endabnahme'));
+        liste.appendChild(card);
+    });
+    if (nochNichtBegonnen > 0) {
+        const fuss = document.createElement('div');
+        fuss.className = 'empty-note';
+        fuss.style.padding = '16px 8px';
+        fuss.textContent = `${nochNichtBegonnen} weitere Aufträge mit Endabnahme sind eingeplant, aber noch nicht begonnen.`;
+        liste.appendChild(fuss);
+    }
+}
+
 // --- Maschinen-Modus ---
 // Das Tablet an der Maschine zeigt ohne Suchen den Auftrag, der dort gerade
 // läuft, die fälligen Prüfungen und die Runden-Eingabe. Die gewählte Maschine
@@ -359,6 +548,19 @@ document.getElementById('maschineWechselnBtn').addEventListener('click', () => {
     localStorage.removeItem('shopfloorMaschine');
     renderMaschinenModus();
 });
+
+// Maschinennamen werden auch auf der Tafel gebraucht (Gruppenüberschriften),
+// nicht nur im Maschinen-Modus.
+async function ladeMaschinenListe() {
+    if (maschinenListe.length > 0) return;
+    try {
+        const res = await fetch(`${API_URL}/maschinen`, { headers: authHeaders() });
+        if (res.ok) {
+            maschinenListe = await res.json();
+            renderBoard();
+        }
+    } catch (err) { /* ohne Liste stehen die Kürzel als Überschrift */ }
+}
 
 async function openMaschinenModus() {
     activeOrderId = null;
@@ -481,6 +683,9 @@ async function openDetail(orderId, herkunft = 'board') {
     stopProduktionPolling();
     clearInterval(maschinenPollTimer);
     maschinenPollTimer = null;
+    clearInterval(endabnahmePollTimer);
+    endabnahmePollTimer = null;
+    document.getElementById('endabnahmeView').classList.add('hidden');
     document.getElementById('maschinenView').classList.add('hidden');
     document.getElementById('produktionView').classList.add('hidden');
     document.getElementById('boardView').classList.add('hidden');
@@ -1109,8 +1314,12 @@ function handleAuthExpired() {
 function init() {
     if (!token) { showScreen(false); return; }
     showScreen(true);
+    // Der Einstieg in die Endabnahme ist nur für QS-Konten sichtbar - nur sie
+    // dürfen sie erfassen (siehe routes/shopfloor.js).
+    document.getElementById('endabnahmeBtn')?.classList.toggle('hidden', currentUser?.rolle !== 'qs');
     const rolleText = currentUser?.rolle === 'qs' ? ' · QS' : '';
     document.getElementById('userGreeting').textContent = currentUser ? `${currentUser.name} (${currentUser.kuerzel})${rolleText}` : '';
+    ladeMaschinenListe();
     fetchBoard();
     clearInterval(boardPollTimer);
     boardPollTimer = setInterval(() => {

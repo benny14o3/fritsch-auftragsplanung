@@ -51,6 +51,25 @@
         .order-card .progress-bar { flex: 1; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
         .order-card .progress-fill { height: 100%; background: #16a34a; }
         .order-card .progress-label { font-size: 11px; color: #94a3b8; white-space: nowrap; }
+        /* Tafel: Suche, Gruppen je Maschine, Status-Marken */
+        .board-kopf { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+        .board-kopf input { flex: 1; min-width: 200px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 15px; font-family: inherit; }
+        .board-kopf span { font-size: 13px; color: #64748b; white-space: nowrap; }
+        .board-gruppe { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 14px 2px 2px; font-size: 13px; font-weight: 700; color: #334155; text-transform: uppercase; letter-spacing: 0.03em; }
+        .board-gruppe:first-child { margin-top: 0; }
+        .board-gruppe-zahl { font-weight: 600; color: #94a3b8; text-transform: none; letter-spacing: 0; }
+        .board-meta { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+        .board-marken { display: flex; flex-wrap: wrap; gap: 6px; }
+        .board-marke { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: #f1f5f9; color: #475569; }
+        .board-marke.laeuft { background: #dcfce7; color: #15803d; }
+        .board-marke.endbearbeitung { background: #fef9c3; color: #854d0e; }
+        .board-marke.frei { background: #e0f2fe; color: #075985; }
+        .board-marke.offen { background: #fee2e2; color: #b91c1c; }
+        .board-marke.fehlt { background: #ffedd5; color: #9a3412; }
+        .board-marke.bereit { background: #dcfce7; color: #15803d; }
+        .board-marke.wartet { background: #f1f5f9; color: #64748b; }
+        .order-card.karte-laeuft { border-left-width: 8px; }
+
         .empty-note { color: #94a3b8; text-align: center; padding: 40px 16px; font-size: 14px; }
 
         /* --- Detail --- */
@@ -170,6 +189,7 @@
             <div class="sub" id="userGreeting"></div>
         </div>
         <div class="topbar-actions">
+            <button class="btn btn-secondary hidden" id="endabnahmeBtn">🔍 Endabnahme</button>
             <button class="btn btn-secondary" id="maschineBtn">🏭 Maschine</button>
             <button class="btn btn-secondary" id="produktionBtn">🏃 Produktion</button>
             <button class="btn btn-secondary" id="refreshBtn">⟳</button>
@@ -181,6 +201,10 @@
             <div class="tabs">
                 <div class="tab active" data-type="Elastomer">Formgebung</div>
                 <div class="tab" data-type="PTFE">CNC</div>
+            </div>
+            <div class="board-kopf">
+                <input type="search" id="boardSucheInput" placeholder="🔍 Auftrag, Artikel oder Bezeichnung">
+                <span id="boardAnzahl"></span>
             </div>
             <div id="orderList" class="order-list"></div>
         </div>
@@ -198,6 +222,18 @@
 
         <!-- Maschinen-Modus: ein Tablet steht fest an einer Maschine und zeigt
              ohne Suchen den Auftrag, der dort gerade läuft. -->
+        <!-- Einstieg für die QS: wo steht eine Endabnahme an? -->
+        <div id="endabnahmeView" class="hidden">
+            <div class="detail-header">
+                <button class="back-btn" id="endabnahmeBackBtn">← Zurück</button>
+                <div>
+                    <div class="detail-title">Endabnahme</div>
+                    <div class="detail-sub">Aufträge mit offener Endabnahme · fertig produzierte zuerst</div>
+                </div>
+            </div>
+            <div id="endabnahmeListe" class="order-list"></div>
+        </div>
+
         <div id="maschinenView" class="hidden">
             <div class="detail-header">
                 <button class="back-btn" id="maschinenBackBtn">← Zurück</button>
