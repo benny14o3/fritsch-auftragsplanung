@@ -1,5 +1,6 @@
 const express = require('express');
 const Order = require('../models/Order');
+const KomponentenBild = require('../models/KomponentenBild');
 const Artikelstamm = require('../models/Artikelstamm');
 const authMiddleware = require('../middleware/auth');
 const { aktuelleVersion, abonniere } = require('../lib/orderEvents');
@@ -153,21 +154,27 @@ router.put('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) =
     if (!komponente) return res.status(404).json({ error: 'Komponente nicht gefunden' });
     const { filename, mimeType, data } = req.body;
     if (!filename || !mimeType || !data) return res.status(400).json({ error: 'Datei unvollständig' });
-    komponente.bild = { filename, mimeType, data, uploadedAt: new Date() };
+    const uploadedAt = new Date();
+    // Inhalt in die eigene Sammlung (siehe models/KomponentenBild.js), im
+    // Auftrag bleibt nur der Vermerk, dass ein Foto vorliegt.
+    await KomponentenBild.findOneAndUpdate(
+      { orderId: order._id, index: Number(req.params.idx) },
+      { filename, mimeType, data, uploadedAt, updatedBy: req.userId },
+      { upsert: true, new: true },
+    );
+    komponente.bild = { filename, mimeType, uploadedAt };
     order.updatedBy = req.userId;
     await order.save();
-    res.json({ filename: komponente.bild.filename, mimeType: komponente.bild.mimeType, uploadedAt: komponente.bild.uploadedAt });
+    res.json({ filename, mimeType, uploadedAt });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Bild inkl. Daten nur bei Bedarf abrufen (Lightbox), nicht im Board-Poll.
 router.get('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.orderId).select('komponenten');
-    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
-    const komponente = order.komponenten[req.params.idx];
-    if (!komponente || !komponente.bild) return res.status(404).json({ error: 'Kein Bild hinterlegt' });
-    res.json(komponente.bild);
+    const bild = await KomponentenBild.findOne({ orderId: req.params.orderId, index: Number(req.params.idx) });
+    if (!bild) return res.status(404).json({ error: 'Kein Bild hinterlegt' });
+    res.json({ filename: bild.filename, mimeType: bild.mimeType, data: bild.data, uploadedAt: bild.uploadedAt });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -177,6 +184,7 @@ router.delete('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     const komponente = order.komponenten[req.params.idx];
     if (!komponente) return res.status(404).json({ error: 'Komponente nicht gefunden' });
+    await KomponentenBild.deleteOne({ orderId: order._id, index: Number(req.params.idx) });
     komponente.bild = null;
     order.updatedBy = req.userId;
     await order.save();
@@ -319,6 +327,8 @@ router.post('/sync-artikeldaten', authMiddleware, async (req, res) => {
 router.delete('/:orderId', authMiddleware, async (req, res) => {
   try {
     await Order.deleteOne({ _id: req.params.orderId });
+    // Fotos liegen in einer eigenen Sammlung - sonst blieben sie als Waisen zurück.
+    await KomponentenBild.deleteMany({ orderId: req.params.orderId });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -330,7 +340,9 @@ router.delete('/', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { dbType } = req.query;
     const filter = dbType ? { dbType } : {};
+    const betroffene = await Order.find(filter).select('_id');
     const result = await Order.deleteMany(filter);
+    await KomponentenBild.deleteMany({ orderId: { $in: betroffene.map(o => o._id) } });
     res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

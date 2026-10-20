@@ -6,10 +6,12 @@ const { meldeAenderung } = require('../lib/orderEvents');
 // über eigene Routen befüllt/abgerufen (siehe routes/orders.js), damit das
 // Bild nicht bei jedem 6-Sekunden-Board-Poll oder jeder Chargen-Änderung
 // mitgeschickt werden muss.
+// Nur noch der Vermerk, DASS ein Foto vorliegt - der Inhalt liegt in einer
+// eigenen Sammlung (models/KomponentenBild.js), weil die Bilder den Auftrag
+// sonst auf mehrere MB aufblähen.
 const komponentenBildSchema = new mongoose.Schema({
   filename: String,
   mimeType: String,
-  data: String, // base64
   uploadedAt: { type: Date, default: Date.now },
 }, { _id: false });
 
