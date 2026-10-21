@@ -133,6 +133,17 @@
         .kanban-card-kommentar { width: 100%; margin-top: 8px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 12px; font-family: inherit; resize: vertical; min-height: 40px; background: #fffbeb; }
         .kanban-card-teilmengen { margin-top: 6px; padding: 6px; background: #fefce8; border-radius: 4px; }
         /* Sollmenge laut Bestellung + tatsächlich ausgelieferte Teilsendungen */
+        /* Kostensätze */
+        .kosten-felder { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+        .kosten-feld label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
+        .kosten-feld input { width: 100%; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; font-family: inherit; }
+        .kosten-feld .hinweis { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+        .kosten-ergebnis-zeile { margin-top: 16px; padding: 12px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; font-size: 14px; color: #15803d; font-weight: 600; }
+        .kosten-satz { font-weight: 700; color: #0f172a; white-space: nowrap; }
+        .kosten-satz.unvollstaendig { color: #b45309; font-weight: 600; }
+        .kosten-aufschluesselung { font-size: 11px; color: #94a3b8; }
+        #kostensaetzePage table input, #kostensaetzePage table select { width: 100%; min-width: 70px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
+
         /* Arbeitsplan je Artikel */
         .arbeitsgang-zeile { display: flex; align-items: flex-start; gap: 10px; padding: 10px 8px; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
         .arbeitsgang-zeile:last-child { border-bottom: none; }
@@ -365,6 +376,7 @@
             <div class="sidebar-item" data-page="ausgeliefertCnc">📦 Ausgeliefert</div>
             <div class="sidebar-item" data-page="archivCnc">🗄️ Archiv</div>
             <div class="sidebar-item admin-only hidden" data-page="databases">💾 Datenbanken</div>
+            <div class="sidebar-item admin-only hidden" data-page="kostensaetze">💶 Kostensätze</div>
             <div class="sidebar-section-label">Werkstatt</div>
             <div class="sidebar-item" id="openShopfloorBtn">🏭 Shopfloor öffnen</div>
         </div>
@@ -780,6 +792,74 @@
                     </table>
                 </div>
             </div>
+        </div>
+
+        <div id="kostensaetzePage" class="page hidden">
+            <div class="header">
+                <h2>Kostensätze</h2>
+                <p>Grundlage der Kalkulation: Maschinenstundensätze, Hilfsbetriebe und Lohnsätze. Änderungen werden sofort gespeichert und neu gerechnet.</p>
+            </div>
+
+            <div class="card">
+                <h3>Allgemeine Annahmen</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Die Jahresstunden sind der Teiler für alle Maschinensätze. Geteilt wird durch die <b>produktiven</b> Stunden - Kosten fallen das ganze Jahr an, verdient werden sie nur in der Zeit, in der wirklich gefertigt wird.</p>
+                <div id="kostenAllgemein" class="kosten-felder"></div>
+                <p id="kostenJahresstunden" class="kosten-ergebnis-zeile"></p>
+            </div>
+
+            <div class="card">
+                <h3>Hilfsbetriebe</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Kompressor, Kühlaggregat, Absaugung, Vakuumpumpe - alles, was für mehrere Maschinen läuft. Der Umlagekreis bestimmt, auf welche Maschinenstunden die Kosten verteilt werden.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Bezeichnung</th><th>Umlage auf</th><th>Wert (€)</th><th>Nutzung (J.)</th>
+                                <th>kW</th><th>Last (%)</th><th>Laufstd./Jahr</th><th>Wartung (€/J.)</th>
+                                <th>Zuschlag je Std.</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="kostenHilfsbetriebeTable"></tbody>
+                    </table>
+                </div>
+                <button class="btn btn-primary" id="kostenHilfsbetriebAddBtn" style="width: auto; margin-top: 12px;">+ Hilfsbetrieb</button>
+            </div>
+
+            <div class="card">
+                <h3>Maschinen</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Je Maschine der Wiederbeschaffungswert (was sie heute neu kosten würde), die Nutzungsdauer, Anschlussleistung mit mittlerer Last, Stellfläche und die jährliche Wartung. Was mit der Maschine läuft (z.B. Absaugung einer CNC), einfach bei den kW mitzählen.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Maschine</th><th>Wert (€)</th><th>Nutzung (J.)</th><th>kW</th><th>Last (%)</th>
+                                <th>m²</th><th>Wartung (€/J.)</th><th>Std./Jahr</th><th>Stundensatz</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kostenMaschinenTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Lohnsätze</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Am genauesten ist der <b>Arbeitgeber-Gesamtaufwand</b> aus dem Lohnjournal - da stecken Sozialabgaben, Umlagen und Sonderzahlungen schon drin. Produktive Stunden: von rund 2.080 bezahlten Stunden bleiben nach Urlaub, Feiertagen, Krankheit und Nebenzeiten meist 1.350 bis 1.450.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr><th>Rolle</th><th>Mitarbeiter</th><th>Arbeitgeberkosten (€/Jahr, je Person)</th><th>Produktive Std./Jahr</th><th>Stundensatz</th></tr>
+                        </thead>
+                        <tbody id="kostenLoehneTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Zuschläge</h3>
+                <div id="kostenZuschlaege" class="kosten-felder"></div>
+            </div>
+
+            <p id="kostenNote" style="font-size: 13px; color: #64748b;"></p>
         </div>
 
         <div id="databasesPage" class="page hidden">

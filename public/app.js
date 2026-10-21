@@ -134,7 +134,7 @@ function switchPage(event) {
     showPage(event.currentTarget.getAttribute('data-page'));
 }
 
-const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases'];
+const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases', 'kostensaetze'];
 // Formgebung (Elastomer/Maplan) und CNC (PTFE) sind komplett getrennte Bereiche -
 // eigenes Board, eigene Endbearbeitung, eigenes Ausgeliefert je Bereich.
 const BOARD_PAGES = ['boardFormgebung', 'boardCnc', 'endbearbeitungFormgebung', 'endbearbeitungCnc', 'ausgeliefertFormgebung', 'ausgeliefertCnc'];
@@ -156,6 +156,7 @@ function showPage(page) {
     if (BOARD_PAGES.includes(page)) loadExistingBoard();
     if (ARCHIV_PAGES[page]) fetchArchiv(ARCHIV_PAGES[page]);
     if (page === 'databases') { fetchWerker(); fetchBackupStand(); ladeArbeitsgangKatalog(); }
+    if (page === 'kostensaetze') ladeKostensaetze();
 }
 
 async function loadExistingBoard() {
@@ -1971,6 +1972,256 @@ document.getElementById('articleDetailFskHistorieBtn')?.addEventListener('click'
         note.style.color = '#b91c1c';
         note.textContent = 'Export fehlgeschlagen.';
     }
+});
+
+// --- Kostensätze (nur Admin) ---
+// Maschinenstundensätze, Hilfsbetriebe und Lohnsätze. Jede Änderung wird
+// gespeichert und der Server rechnet die Sätze neu - so gibt es nur EINE
+// Stelle mit den Formeln (lib/kostensaetze.js), die später auch die
+// Kalkulation benutzt.
+
+let kostenDaten = null;
+let kostenBerechnet = null;
+let kostenMaschinenListe = [];
+let kostenSpeicherTimer = null;
+
+const euro = (n) => (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+
+async function ladeKostensaetze() {
+    if (currentUser?.role !== 'admin') return;
+    try {
+        const res = await fetch(`${API_URL}/kostensaetze`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        const antwort = await res.json();
+        kostenDaten = antwort.daten;
+        kostenBerechnet = antwort.berechnet;
+        kostenMaschinenListe = antwort.maschinenListe || [];
+        renderKostensaetze();
+    } catch (err) { /* beim nächsten Öffnen erneut */ }
+}
+
+// Nicht bei jedem Tastendruck speichern, sondern kurz warten - sonst entsteht
+// bei jeder Ziffer eine Anfrage.
+function speichereKostensaetze() {
+    clearTimeout(kostenSpeicherTimer);
+    const note = document.getElementById('kostenNote');
+    if (note) { note.style.color = '#64748b'; note.textContent = 'Wird gespeichert…'; }
+    kostenSpeicherTimer = setTimeout(async () => {
+        try {
+            const res = await fetch(`${API_URL}/kostensaetze`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(kostenDaten),
+            });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Fehlgeschlagen');
+            const antwort = await res.json();
+            kostenDaten = antwort.daten;
+            kostenBerechnet = antwort.berechnet;
+            renderKostensaetze({ nurErgebnisse: true });
+            if (note) { note.style.color = '#15803d'; note.textContent = `✅ Gespeichert um ${new Date().toLocaleTimeString('de-DE')}`; }
+        } catch (err) {
+            if (note) { note.style.color = '#b91c1c'; note.textContent = `Speichern fehlgeschlagen: ${err.message}`; }
+        }
+    }, 700);
+}
+
+function kostenFeld(pfad, titel, hinweis, einheit) {
+    const [bereich, name] = pfad.split('.');
+    const wert = kostenDaten?.[bereich]?.[name];
+    return `<div class="kosten-feld">
+        <label>${titel}${einheit ? ` (${einheit})` : ''}</label>
+        <input type="number" step="any" min="0" data-kosten-pfad="${pfad}" value="${wert ?? ''}">
+        ${hinweis ? `<div class="hinweis">${hinweis}</div>` : ''}
+    </div>`;
+}
+
+function renderKostensaetze({ nurErgebnisse = false } = {}) {
+    if (!kostenDaten || !kostenBerechnet) return;
+
+    if (!nurErgebnisse) {
+        document.getElementById('kostenAllgemein').innerHTML = [
+            kostenFeld('allgemein.arbeitstageProJahr', 'Arbeitstage pro Jahr', 'abzüglich Feiertage und Betriebsurlaub'),
+            kostenFeld('allgemein.schichtstundenProTag', 'Stunden je Schicht'),
+            kostenFeld('allgemein.auslastungProzent', 'Auslastung', 'aus eurem Zeitplan: 77 % in der Formgebung', '%'),
+            kostenFeld('allgemein.jahresstundenManuell', 'Jahresstunden fest vorgeben', 'leer lassen = aus den Werten links gerechnet'),
+            kostenFeld('allgemein.zinssatzProzent', 'Kalkulatorischer Zinssatz', 'üblich 4 bis 6 %', '%'),
+            kostenFeld('allgemein.strompreisCtProKwh', 'Strompreis', '', 'ct/kWh'),
+            kostenFeld('allgemein.raumkostenProQmJahr', 'Raumkosten', 'Miete plus Heizung und Nebenkosten', '€/m² und Jahr'),
+        ].join('');
+
+        document.getElementById('kostenZuschlaege').innerHTML = [
+            kostenFeld('zuschlaege.verwaltungVertriebProzent', 'Verwaltung und Vertrieb', 'Zuschlag auf die Herstellkosten', '%'),
+            kostenFeld('zuschlaege.ausschussProzent', 'Kalkulierter Ausschuss', '', '%'),
+            kostenFeld('zuschlaege.margeProzent', 'Zielmarge', '', '%'),
+        ].join('');
+
+        renderKostenHilfsbetriebe();
+        renderKostenMaschinen();
+        renderKostenLoehne();
+
+        document.querySelectorAll('[data-kosten-pfad]').forEach(input => {
+            input.addEventListener('input', () => {
+                const [bereich, name] = input.dataset.kostenPfad.split('.');
+                if (!kostenDaten[bereich]) kostenDaten[bereich] = {};
+                kostenDaten[bereich][name] = input.value === '' ? undefined : Number(input.value);
+                speichereKostensaetze();
+            });
+        });
+    } else {
+        renderKostenHilfsbetriebe();
+        renderKostenMaschinen();
+        renderKostenLoehne();
+    }
+
+    const jahr = document.getElementById('kostenJahresstunden');
+    if (jahr) jahr.textContent = `Gerechnet wird mit ${kostenBerechnet.jahresstunden.toLocaleString('de-DE')} produktiven Stunden je Maschine und Jahr.`;
+}
+
+function renderKostenMaschinen() {
+    const tbody = document.getElementById('kostenMaschinenTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    kostenBerechnet.maschinen.forEach(m => {
+        const eintrag = kostenDaten.maschinen.find(x => x.maschineId === m.maschineId)
+            || (kostenDaten.maschinen.push({ maschineId: m.maschineId }), kostenDaten.maschinen.at(-1));
+        const tr = document.createElement('tr');
+        const nameTd = document.createElement('td');
+        nameTd.innerHTML = `<b>${escapeHtml(m.name)}</b><div class="kosten-aufschluesselung">${m.type === 'Elastomer' ? 'Formgebung' : 'CNC'}</div>`;
+        tr.appendChild(nameTd);
+        [['wiederbeschaffungswert'], ['nutzungsdauerJahre'], ['kw'], ['lastanteilProzent'], ['qm'], ['wartungProJahr'], ['jahresstundenAbweichend']].forEach(([feld]) => {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.min = '0';
+            input.value = eintrag[feld] ?? '';
+            if (feld === 'jahresstundenAbweichend') input.placeholder = String(kostenBerechnet.jahresstunden);
+            input.addEventListener('input', () => {
+                eintrag[feld] = input.value === '' ? undefined : Number(input.value);
+                speichereKostensaetze();
+            });
+            td.appendChild(input);
+            tr.appendChild(td);
+        });
+        const satzTd = document.createElement('td');
+        const p = m.posten;
+        satzTd.innerHTML = m.vollstaendig
+            ? `<span class="kosten-satz">${euro(m.stundensatz)}/h</span>
+               <div class="kosten-aufschluesselung">AfA ${euro(p.abschreibung)} · Zins ${euro(p.zinsen)} · Strom ${euro(p.energie)} · Raum ${euro(p.raum)} · Wartung ${euro(p.wartung)} · Hilfsbetriebe ${euro(p.hilfsbetrieb)}</div>`
+            : `<span class="kosten-satz unvollstaendig">${euro(m.stundensatz)}/h</span>
+               <div class="kosten-aufschluesselung">unvollständig - Wert und Nutzungsdauer fehlen</div>`;
+        tr.appendChild(satzTd);
+        tbody.appendChild(tr);
+    });
+}
+
+function renderKostenHilfsbetriebe() {
+    const tbody = document.getElementById('kostenHilfsbetriebeTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    if ((kostenDaten.hilfsbetriebe || []).length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="color:#64748b;">Noch kein Hilfsbetrieb erfasst - Kompressor und Kühlaggregat gehören hierher.</td></tr>';
+        return;
+    }
+    kostenDaten.hilfsbetriebe.forEach((h, idx) => {
+        const berechnet = kostenBerechnet.hilfsbetriebe[idx];
+        const tr = document.createElement('tr');
+
+        const nameTd = document.createElement('td');
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.value = h.name || '';
+        nameInput.addEventListener('input', () => { h.name = nameInput.value; speichereKostensaetze(); });
+        nameTd.appendChild(nameInput);
+        tr.appendChild(nameTd);
+
+        const kreisTd = document.createElement('td');
+        const select = document.createElement('select');
+        const optionen = [['alle', 'alle Maschinen'], ['Elastomer', 'nur Formgebung'], ['PTFE', 'nur CNC'],
+            ...kostenMaschinenListe.map(m => [m.id, m.name])];
+        optionen.forEach(([wert, text]) => {
+            const opt = document.createElement('option');
+            opt.value = wert;
+            opt.textContent = text;
+            if ((h.umlagekreis || 'alle') === wert) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.addEventListener('change', () => { h.umlagekreis = select.value; speichereKostensaetze(); });
+        kreisTd.appendChild(select);
+        tr.appendChild(kreisTd);
+
+        ['wiederbeschaffungswert', 'nutzungsdauerJahre', 'kw', 'lastanteilProzent', 'laufstundenProJahr', 'wartungProJahr'].forEach(feld => {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.min = '0';
+            input.value = h[feld] ?? '';
+            if (feld === 'laufstundenProJahr') input.placeholder = String(kostenBerechnet.jahresstunden);
+            input.addEventListener('input', () => { h[feld] = input.value === '' ? undefined : Number(input.value); speichereKostensaetze(); });
+            td.appendChild(input);
+            tr.appendChild(td);
+        });
+
+        const satzTd = document.createElement('td');
+        satzTd.innerHTML = `<span class="kosten-satz">${euro(berechnet?.proStunde || 0)}/h</span>
+            <div class="kosten-aufschluesselung">${euro(berechnet?.jahreskosten || 0)} im Jahr auf ${berechnet?.maschinen.length || 0} Maschinen</div>`;
+        tr.appendChild(satzTd);
+
+        const wegTd = document.createElement('td');
+        const wegBtn = document.createElement('button');
+        wegBtn.className = 'danger';
+        wegBtn.textContent = '🗑';
+        wegBtn.addEventListener('click', () => {
+            kostenDaten.hilfsbetriebe.splice(idx, 1);
+            speichereKostensaetze();
+            renderKostenHilfsbetriebe();
+        });
+        wegTd.appendChild(wegBtn);
+        tr.appendChild(wegTd);
+        tbody.appendChild(tr);
+    });
+}
+
+const LOHN_ROLLE_LABEL = { einrichter: 'Einrichter', maschinenbediener: 'Maschinenbediener', kontrolle: 'Kontrollpersonal' };
+
+function renderKostenLoehne() {
+    const tbody = document.getElementById('kostenLoehneTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    ['einrichter', 'maschinenbediener', 'kontrolle'].forEach(rolle => {
+        let eintrag = kostenDaten.loehne.find(l => l.rolle === rolle);
+        if (!eintrag) { eintrag = { rolle }; kostenDaten.loehne.push(eintrag); }
+        const berechnet = kostenBerechnet.loehne.find(l => l.rolle === rolle);
+        const tr = document.createElement('tr');
+        const nameTd = document.createElement('td');
+        nameTd.innerHTML = `<b>${LOHN_ROLLE_LABEL[rolle]}</b>`;
+        tr.appendChild(nameTd);
+        ['anzahlMitarbeiter', 'jahreskostenArbeitgeber', 'produktiveStundenProJahr'].forEach(feld => {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.min = '0';
+            input.value = eintrag[feld] ?? '';
+            if (feld === 'produktiveStundenProJahr') input.placeholder = '1400';
+            input.addEventListener('input', () => { eintrag[feld] = input.value === '' ? undefined : Number(input.value); speichereKostensaetze(); });
+            td.appendChild(input);
+            tr.appendChild(td);
+        });
+        const satzTd = document.createElement('td');
+        satzTd.innerHTML = `<span class="kosten-satz${berechnet?.stundensatz ? '' : ' unvollstaendig'}">${euro(berechnet?.stundensatz || 0)}/h</span>`;
+        tr.appendChild(satzTd);
+        tbody.appendChild(tr);
+    });
+}
+
+document.getElementById('kostenHilfsbetriebAddBtn')?.addEventListener('click', () => {
+    if (!kostenDaten) return;
+    if (!kostenDaten.hilfsbetriebe) kostenDaten.hilfsbetriebe = [];
+    kostenDaten.hilfsbetriebe.push({ name: 'Neuer Hilfsbetrieb', umlagekreis: 'alle' });
+    speichereKostensaetze();
+    renderKostenHilfsbetriebe();
 });
 
 // --- Datensicherung ---
