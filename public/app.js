@@ -877,7 +877,8 @@ function renderImportVorschau() {
             // stünde überall "bestätigt", obwohl nichts geändert wurde.
             const gleich = neu && o.lieferdatum && tagesBeginn(neu).getTime() === tagesBeginn(o.lieferdatum).getTime();
             o.lieferterminKorrigiert = (!neu || gleich) ? null : neu.toISOString();
-            if (o.lieferterminKorrigiert) o.lieferterminGrund = 'Bei der Auftragsbestätigung abweichend bestätigt';
+            // Bewusst KEIN Grund von selbst - der steht später in der Mitteilung
+            // an den Kunden und darf nicht erfunden sein.
             renderImportVorschau();
         });
         td.appendChild(input);
@@ -4960,6 +4961,19 @@ function oeffneMailprogramm(url) {
 // und es braucht keinen Postfach-Zugang in der Anwendung.
 async function meldeTerminabweichung(order, btn) {
     const urspruenglich = btn ? btn.textContent : '';
+
+    // Den Grund hier erfragen statt irgendwo zu erfinden - er steht in der
+    // Mitteilung an den Kunden. Leer lassen ist erlaubt, dann fehlt die Zeile.
+    const eingabe = prompt(
+        `Grund für den abweichenden Liefertermin (erscheint in Mitteilung und Mail, kann leer bleiben):`,
+        order.lieferterminGrund || '');
+    if (eingabe === null) return; // Abbruch
+    const grund = eingabe.trim();
+    if (grund !== (order.lieferterminGrund || '')) {
+        order.lieferterminGrund = grund;
+        await patchOrder(order._id, { lieferterminGrund: grund });
+    }
+
     try {
         if (btn) { btn.textContent = 'PDF wird erzeugt...'; btn.disabled = true; }
         await exportTerminabweichung(order);
@@ -4982,7 +4996,10 @@ async function meldeTerminabweichung(order, btn) {
             'Formteile Fritsch GmbH',
         ].filter(z => z !== null).join('\n');
 
-        oeffneMailprogramm(`mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text)}`);
+        // Erst wenn der Download wirklich angestoßen ist: Safari bricht einen
+        // laufenden Blob-Download ab, sobald die Seite zu einem mailto: wechselt.
+        const mailUrl = `mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text)}`;
+        setTimeout(() => oeffneMailprogramm(mailUrl), 1200);
         if (btn) btn.textContent = '✅ PDF im Download - bitte anhängen';
     } catch (err) {
         if (btn) btn.textContent = 'PDF fehlgeschlagen';

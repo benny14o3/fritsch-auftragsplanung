@@ -18,7 +18,9 @@ function downloadBytes(bytes, filename, mimeType) {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Großzügig: manche Browser starten den Download verzögert, eine zu früh
+    // freigegebene URL führt dann zu einer leeren Datei.
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 // Rundet Fließkomma-Rauschen aus Sollwert +/- Abweichung weg (z.B. 35.900000000000006).
