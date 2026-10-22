@@ -70,7 +70,12 @@ router.get('/version', authMiddleware, (req, res) => res.json({ version: aktuell
 // vorliegt, verrät der Dateiname.
 router.get('/wareneingaenge', authMiddleware, async (req, res) => {
   try {
-    const orders = await Order.find({ 'komponenten.wareneingang': { $ne: null } })
+    // $elemMatch und NICHT { 'komponenten.wareneingang': { $ne: null } }:
+    // Auf einem Array heisst $ne "kein einziges Element ist null" - ein Auftrag,
+    // bei dem erst das Werkzeug da ist und das Material noch fehlt, wäre damit
+    // komplett herausgefallen. Gesucht ist aber: mindestens eine Komponente
+    // hat einen Eingang.
+    const orders = await Order.find({ komponenten: { $elemMatch: { wareneingang: { $ne: null } } } })
       .select('auftragsnummer artikelnummer beschreibung bestellnummer dbType phase komponenten')
       .lean();
     const zeilen = [];
