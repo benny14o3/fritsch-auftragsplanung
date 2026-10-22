@@ -6,6 +6,10 @@ const mongoose = require('mongoose');
 
 const maschineKostenSchema = new mongoose.Schema({
   maschineId: { type: String, required: true },
+  // Gehört die Maschine uns oder dem Kunden? Beigestellte Maschinen binden kein
+  // eigenes Kapital - Abschreibung und kalkulatorische Zinsen entfallen, Strom,
+  // Fläche und Wartung fallen aber weiterhin bei uns an.
+  eigentum: { type: String, enum: ['eigen', 'kunde'], default: 'eigen' },
   wiederbeschaffungswert: Number,
   nutzungsdauerJahre: Number,
   kw: Number,                      // Anschlussleistung

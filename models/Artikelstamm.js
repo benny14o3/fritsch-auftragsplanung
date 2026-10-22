@@ -76,6 +76,23 @@ const zusatzmaterialSchema = new mongoose.Schema({
   bemerkung: String,
 }, { _id: false });
 
+// Verbrauchswerkzeug, vor allem Wendeschneidplatten beim Drehen und Fräsen.
+// Gerechnet wird über die Standzeit: Eine Platte hat mehrere nutzbare
+// Schneiden, jede hält eine bestimmte Zahl Teile oder Schnittminuten. Daraus
+// ergeben sich die Werkzeugkosten je Teil.
+const werkzeugverbrauchSchema = new mongoose.Schema({
+  bezeichnung: { type: String, required: true },   // z.B. CNMG 120408
+  preis: Number,                                   // je Wendeschneidplatte
+  schneidenProPlatte: Number,                      // nutzbare Ecken/Schneiden
+  // Standzeit je Schneide - entweder in Teilen oder in Schnittminuten. Bei
+  // Minuten wird mit der Bearbeitungszeit des Artikels (Zeit pro 100)
+  // hochgerechnet.
+  standzeitArt: { type: String, enum: ['teile', 'minuten'], default: 'teile' },
+  teileProSchneide: Number,
+  minutenProSchneide: Number,
+  bemerkung: String,
+}, { _id: false });
+
 // Ein Arbeitsgang, den dieser Artikel durchläuft (Katalog: models/Arbeitsgang.js).
 // Die Werte überschreiben die Vorgaben aus dem Katalog, weil sie sich je Artikel
 // unterscheiden: eine kleine Dichtung kontrolliert sich schneller als ein
@@ -106,6 +123,8 @@ const artikelSchema = new mongoose.Schema({
   arbeitsgaenge: [artikelArbeitsgangSchema],
   // Zugekauftes Material außerhalb der Stückliste (Platten, Rundstäbe, ...).
   zusatzmaterial: [zusatzmaterialSchema],
+  // Verbrauchswerkzeug (Wendeschneidplatten, Bohrer, ...).
+  werkzeugverbrauch: [werkzeugverbrauchSchema],
 }, { _id: false });
 
 const artikelstammSchema = new mongoose.Schema({

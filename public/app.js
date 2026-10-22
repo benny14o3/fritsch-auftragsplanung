@@ -1293,6 +1293,8 @@ function openArticleDetailModal(material) {
     articleDetailArbeitsgaenge = (article.arbeitsgaenge || []).map(r => ({ ...r }));
     articleDetailKomponenten = (article.komponenten || []).map(k => ({ ...k }));
     articleDetailZusatzmaterial = (article.zusatzmaterial || []).map(m => ({ ...m }));
+    articleDetailWerkzeug = (article.werkzeugverbrauch || []).map(w => ({ ...w }));
+    renderArticleDetailWerkzeug();
     renderArticleDetailArbeitsgaenge();
     renderArticleDetailMaterial();
     document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
@@ -1432,6 +1434,23 @@ const ROLLE_LABEL = { einrichter: 'Einrichter', maschinenbediener: 'Bediener', k
 // Kalkulation ein.
 let articleDetailKomponenten = [];
 let articleDetailZusatzmaterial = [];
+let articleDetailWerkzeug = [];
+
+// Werkzeugkosten je Teil aus der Standzeit. Bei Minuten-Standzeit wird mit der
+// Bearbeitungszeit des Artikels hochgerechnet (Zeit pro 100 Stück).
+function werkzeugProTeil(w, zeitProHundert) {
+    const preis = Number(w.preis) || 0;
+    const schneiden = Number(w.schneidenProPlatte) || 0;
+    if (!preis || !schneiden) return 0;
+    if ((w.standzeitArt || 'teile') === 'teile') {
+        const teile = Number(w.teileProSchneide) || 0;
+        return teile > 0 ? preis / (schneiden * teile) : 0;
+    }
+    const minuten = Number(w.minutenProSchneide) || 0;
+    if (minuten <= 0) return 0;
+    const minutenJeTeil = (Number(zeitProHundert) || 0) / 100;
+    return (preis / (schneiden * minuten)) * minutenJeTeil;
+}
 
 // Was kostet diese Materialposition je gefertigtem Teil?
 function materialProTeil(m) {
@@ -1636,6 +1655,72 @@ document.getElementById('articleDetailPlanUebernehmenBtn')?.addEventListener('cl
     note.style.color = '#475569';
     note.textContent = `Arbeitsplan von ${material} übernommen - noch nicht gespeichert.`;
 });
+
+function renderArticleDetailWerkzeug() {
+    const box = document.getElementById('articleDetailWerkzeug');
+    if (!box) return;
+    const artikel = artikelstamm?.artikel?.find(a => a.material === articleDetailMaterial);
+    const zeitProHundert = artikel?.zeitProHundert || 0;
+
+    box.innerHTML = articleDetailWerkzeug.map((w, idx) => {
+        const nachTeilen = (w.standzeitArt || 'teile') === 'teile';
+        const kosten = werkzeugProTeil(w, zeitProHundert);
+        return `
+        <div class="material-zeile zukauf">
+            <div class="material-kopf">
+                <span style="font-size:16px;">🔪</span>
+                <input type="text" class="material-bezeichnung" data-wz-feld="bezeichnung" data-wz-index="${idx}"
+                    value="${escapeHtml(w.bezeichnung || '')}" placeholder="z.B. CNMG 120408">
+            </div>
+            <div class="material-felder">
+                <label>Preis
+                    <input type="number" min="0" step="any" data-wz-feld="preis" data-wz-index="${idx}" value="${w.preis ?? ''}"> €
+                </label>
+                <label>Schneiden
+                    <input type="number" min="1" step="1" data-wz-feld="schneidenProPlatte" data-wz-index="${idx}" value="${w.schneidenProPlatte ?? ''}">
+                </label>
+                <label>Standzeit in
+                    <select data-wz-feld="standzeitArt" data-wz-index="${idx}">
+                        <option value="teile"${nachTeilen ? ' selected' : ''}>Teilen</option>
+                        <option value="minuten"${!nachTeilen ? ' selected' : ''}>Minuten</option>
+                    </select>
+                </label>
+                ${nachTeilen
+                    ? `<label>je Schneide
+                        <input type="number" min="0" step="any" data-wz-feld="teileProSchneide" data-wz-index="${idx}" value="${w.teileProSchneide ?? ''}"> Teile
+                    </label>`
+                    : `<label>je Schneide
+                        <input type="number" min="0" step="any" data-wz-feld="minutenProSchneide" data-wz-index="${idx}" value="${w.minutenProSchneide ?? ''}"> min
+                    </label>`}
+                <button type="button" class="danger" data-wz-weg="${idx}" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:4px;padding:4px 8px;cursor:pointer;">🗑</button>
+            </div>
+            <span class="material-ergebnis">${euroJeTeil(kosten)}</span>
+            ${!nachTeilen ? `<div class="arbeitsgang-hinweis">Hochgerechnet mit ${(zeitProHundert / 100).toLocaleString('de-DE', { maximumFractionDigits: 2 })} min Bearbeitungszeit je Teil (aus Zeit pro 100${zeitProHundert ? '' : ' - im Artikel noch nicht hinterlegt'}).</div>` : ''}
+        </div>`;
+    }).join('') + `<div style="padding: 10px 8px;">
+        <button type="button" class="btn btn-secondary" data-wz-neu style="width:auto;">+ Wendeschneidplatte / Werkzeug</button>
+    </div>`;
+
+    box.querySelectorAll('[data-wz-feld]').forEach(el => {
+        const ereignis = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(ereignis, () => {
+            const w = articleDetailWerkzeug[Number(el.dataset.wzIndex)];
+            const feld = el.dataset.wzFeld;
+            w[feld] = (el.type === 'number') ? (el.value === '' ? undefined : Number(el.value)) : el.value;
+            renderArticleDetailWerkzeug();
+        });
+    });
+    box.querySelectorAll('[data-wz-weg]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            articleDetailWerkzeug.splice(Number(btn.dataset.wzWeg), 1);
+            renderArticleDetailWerkzeug();
+        });
+    });
+    box.querySelector('[data-wz-neu]')?.addEventListener('click', () => {
+        articleDetailWerkzeug.push({ bezeichnung: 'Wendeschneidplatte', schneidenProPlatte: 4, standzeitArt: 'teile' });
+        renderArticleDetailWerkzeug();
+    });
+}
 
 // Material außerhalb der Stückliste - beim Drehen vor allem die Platte, aus
 // der die Teile herausgearbeitet werden.
@@ -2003,6 +2088,7 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
                 arbeitsgaenge: articleDetailArbeitsgaenge,
                 komponenten: articleDetailKomponenten,
                 zusatzmaterial: articleDetailZusatzmaterial.filter(m => (m.bezeichnung || '').trim()),
+                werkzeugverbrauch: articleDetailWerkzeug.filter(w => (w.bezeichnung || '').trim()),
             }),
         });
         const data = await res.json();
@@ -2065,6 +2151,7 @@ document.getElementById('articleDetailFskHistorieBtn')?.addEventListener('click'
 let kostenDaten = null;
 let kostenBerechnet = null;
 let kostenMaschinenListe = [];
+let kostenAuslastung = {};
 let kostenSpeicherTimer = null;
 
 const euro = (n) => (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -2078,6 +2165,7 @@ async function ladeKostensaetze() {
         kostenDaten = antwort.daten;
         kostenBerechnet = antwort.berechnet;
         kostenMaschinenListe = antwort.maschinenListe || [];
+        kostenAuslastung = antwort.auslastung || {};
         renderKostensaetze();
     } catch (err) { /* beim nächsten Öffnen erneut */ }
 }
@@ -2099,6 +2187,7 @@ function speichereKostensaetze() {
             const antwort = await res.json();
             kostenDaten = antwort.daten;
             kostenBerechnet = antwort.berechnet;
+            kostenAuslastung = antwort.auslastung || kostenAuslastung;
             renderKostensaetze({ nurErgebnisse: true });
             if (note) { note.style.color = '#15803d'; note.textContent = `✅ Gespeichert um ${new Date().toLocaleTimeString('de-DE')}`; }
         } catch (err) {
@@ -2168,7 +2257,26 @@ function renderKostenMaschinen() {
             || (kostenDaten.maschinen.push({ maschineId: m.maschineId }), kostenDaten.maschinen.at(-1));
         const tr = document.createElement('tr');
         const nameTd = document.createElement('td');
-        nameTd.innerHTML = `<b>${escapeHtml(m.name)}</b><div class="kosten-aufschluesselung">${m.type === 'Elastomer' ? 'Formgebung' : 'CNC'}</div>`;
+        const ist = kostenAuslastung[m.maschineId];
+        nameTd.innerHTML = `<b>${escapeHtml(m.name)}</b>
+            <div class="kosten-aufschluesselung">${m.type === 'Elastomer' ? 'Formgebung' : 'CNC'}${ist ? ` · Auslastung laut Zeitplan ${ist.prozent} %` : ''}</div>`;
+        // Eigene oder vom Kunden beigestellte Maschine - entscheidet, ob
+        // Abschreibung und Zinsen überhaupt anfallen.
+        const eigentumSelect = document.createElement('select');
+        [['eigen', 'eigene Maschine'], ['kunde', 'Kunde beigestellt']].forEach(([wert, text]) => {
+            const opt = document.createElement('option');
+            opt.value = wert;
+            opt.textContent = text;
+            if ((eintrag.eigentum || 'eigen') === wert) opt.selected = true;
+            eigentumSelect.appendChild(opt);
+        });
+        eigentumSelect.style.marginTop = '4px';
+        eigentumSelect.addEventListener('change', () => {
+            eintrag.eigentum = eigentumSelect.value;
+            speichereKostensaetze();
+            renderKostenMaschinen();
+        });
+        nameTd.appendChild(eigentumSelect);
         tr.appendChild(nameTd);
         [['wiederbeschaffungswert'], ['nutzungsdauerJahre'], ['kw'], ['lastanteilProzent'], ['qm'], ['wartungProJahr'], ['jahresstundenAbweichend']].forEach(([feld]) => {
             const td = document.createElement('td');
@@ -2177,7 +2285,17 @@ function renderKostenMaschinen() {
             input.step = 'any';
             input.min = '0';
             input.value = eintrag[feld] ?? '';
-            if (feld === 'jahresstundenAbweichend') input.placeholder = String(kostenBerechnet.jahresstunden);
+            if (feld === 'jahresstundenAbweichend') {
+                // Vorschlag aus der tatsächlichen Belegung statt des Pauschalwerts.
+                input.placeholder = ist ? String(ist.stundenProJahr) : String(kostenBerechnet.jahresstunden);
+                input.title = ist ? `Laut Zeitplan rund ${ist.stundenProJahr} Stunden im Jahr (${ist.prozent} % Auslastung)` : '';
+            }
+            // Bei beigestellten Maschinen sind Wert und Nutzungsdauer ohne Wirkung.
+            if ((eintrag.eigentum || 'eigen') === 'kunde' && (feld === 'wiederbeschaffungswert' || feld === 'nutzungsdauerJahre')) {
+                input.disabled = true;
+                input.title = 'Maschine gehört dem Kunden - keine Abschreibung, keine Zinsen';
+                input.style.background = '#f1f5f9';
+            }
             input.addEventListener('input', () => {
                 eintrag[feld] = input.value === '' ? undefined : Number(input.value);
                 speichereKostensaetze();
@@ -2187,11 +2305,12 @@ function renderKostenMaschinen() {
         });
         const satzTd = document.createElement('td');
         const p = m.posten;
+        const beigestellt = m.eigentum === 'kunde';
         satzTd.innerHTML = m.vollstaendig
             ? `<span class="kosten-satz">${euro(m.stundensatz)}/h</span>
-               <div class="kosten-aufschluesselung">AfA ${euro(p.abschreibung)} · Zins ${euro(p.zinsen)} · Strom ${euro(p.energie)} · Raum ${euro(p.raum)} · Wartung ${euro(p.wartung)} · Hilfsbetriebe ${euro(p.hilfsbetrieb)}</div>`
+               <div class="kosten-aufschluesselung">${beigestellt ? 'ohne AfA/Zins (beigestellt)' : `AfA ${euro(p.abschreibung)} · Zins ${euro(p.zinsen)}`} · Strom ${euro(p.energie)} · Raum ${euro(p.raum)} · Wartung ${euro(p.wartung)} · Hilfsbetriebe ${euro(p.hilfsbetrieb)}</div>`
             : `<span class="kosten-satz unvollstaendig">${euro(m.stundensatz)}/h</span>
-               <div class="kosten-aufschluesselung">unvollständig - Wert und Nutzungsdauer fehlen</div>`;
+               <div class="kosten-aufschluesselung">unvollständig - ${beigestellt ? 'Leistung oder Fläche fehlen' : 'Wert und Nutzungsdauer fehlen'}</div>`;
         tr.appendChild(satzTd);
         tbody.appendChild(tr);
     });
