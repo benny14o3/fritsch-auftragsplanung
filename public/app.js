@@ -2411,7 +2411,7 @@ function renderMitarbeiter() {
         const tr = document.createElement('tr');
         if (!m.rolle) tr.className = 'ohne-rolle';
 
-        const feldText = (feld, breite) => {
+        const feldText = (feld, breite, hinweis) => {
             const td = document.createElement('td');
             const input = document.createElement('input');
             input.type = 'text';
@@ -2419,9 +2419,15 @@ function renderMitarbeiter() {
             if (breite) input.style.minWidth = breite;
             input.addEventListener('input', () => { m[feld] = input.value; speichereKostensaetze(); });
             td.appendChild(input);
+            if (hinweis) {
+                const zeile = document.createElement('div');
+                zeile.className = 'kosten-aufschluesselung';
+                zeile.textContent = hinweis;
+                td.appendChild(zeile);
+            }
             tr.appendChild(td);
         };
-        feldText('name', '160px');
+        feldText('name', '160px', m.bemerkung || '');
         feldText('firma', '120px');
 
         const rolleTd = document.createElement('td');
