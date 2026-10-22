@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth');
+const { istInhaber } = require('../lib/inhaber');
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.post('/register', async (req, res) => {
     const role = userCount === 0 ? 'admin' : 'user';
     const user = await User.create({ email, name, password, company: 'Formteile Fritsch GmbH', role });
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.status(201).json({ token, user: { id: user._id, email: user.email, name: user.name, role: user.role } });
+    res.status(201).json({ token, user: { id: user._id, email: user.email, name: user.name, role: user.role, inhaber: istInhaber(user) } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -42,7 +43,7 @@ router.post('/login', async (req, res) => {
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) return res.status(401).json({ error: 'Email oder Passwort falsch' });
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user._id, email: user.email, name: user.name, role: user.role } });
+    res.json({ token, user: { id: user._id, email: user.email, name: user.name, role: user.role, inhaber: istInhaber(user) } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -51,7 +52,10 @@ router.post('/login', async (req, res) => {
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.userId).select('-password');
-    res.json(user);
+    if (!user) return res.status(404).json({ error: 'Benutzer nicht gefunden' });
+    // inhaber steuert, ob die Oberfläche die Kostensätze überhaupt anbietet -
+    // der Zugriff selbst hängt davon nicht ab (middleware/inhaber.js).
+    res.json({ ...user.toObject(), inhaber: istInhaber(user) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

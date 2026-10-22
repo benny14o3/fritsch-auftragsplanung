@@ -4,12 +4,13 @@ const Order = require('../models/Order');
 const { MASCHINEN } = require('../lib/maschinen');
 const { berechneSaetze } = require('../lib/kostensaetze');
 const authMiddleware = require('../middleware/auth');
-const adminMiddleware = require('../middleware/admin');
+const inhaberMiddleware = require('../middleware/inhaber');
 
 const router = express.Router();
 
 // Kostensätze sind Geschäftsgeheimnis - Lohnkosten, Maschinenwerte, Marge.
-// Deshalb durchgehend adminMiddleware, auch beim Lesen.
+// Deshalb durchgehend inhaberMiddleware, auch beim Lesen: nicht jeder Admin,
+// sondern ausschließlich das Inhaber-Konto (siehe lib/inhaber.js).
 
 async function holeOderLege() {
   let doc = await Kostensaetze.findOne();
@@ -85,7 +86,7 @@ async function antwort(doc) {
   };
 }
 
-router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
+router.get('/', authMiddleware, inhaberMiddleware, async (req, res) => {
   try {
     res.json(await antwort(await holeOderLege()));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -93,7 +94,7 @@ router.get('/', authMiddleware, adminMiddleware, async (req, res) => {
 
 // Speichern und direkt die neu gerechneten Sätze zurückgeben, damit die
 // Oberfläche ohne zweiten Aufruf zeigen kann, was sich geändert hat.
-router.put('/', authMiddleware, adminMiddleware, async (req, res) => {
+router.put('/', authMiddleware, inhaberMiddleware, async (req, res) => {
   try {
     const doc = await holeOderLege();
     const { allgemein, maschinen, hilfsbetriebe, loehne, zuschlaege } = req.body;

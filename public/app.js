@@ -93,6 +93,10 @@ function showApp() {
     document.querySelectorAll('.admin-only').forEach(el => {
         el.classList.toggle('hidden', currentUser.role !== 'admin');
     });
+    // Strenger als admin-only: nur das Inhaber-Konto (siehe lib/inhaber.js).
+    document.querySelectorAll('.inhaber-only').forEach(el => {
+        el.classList.toggle('hidden', !istInhaber());
+    });
     initFehlendeKomponentenToggle();
     loadExistingBoard();
     applyVollbildModusAusUrl();
@@ -134,7 +138,12 @@ function switchPage(event) {
     showPage(event.currentTarget.getAttribute('data-page'));
 }
 
-const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases', 'kostensaetze'];
+const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases'];
+// Die Kostensätze sieht auch unter Admins nur der Inhaber - Löhne, Maschinenwerte
+// und Marge gehören niemandem sonst. Der Server lehnt sie ohnehin ab, die
+// Oberfläche versteckt sie zusätzlich, damit niemand erst gegen eine 403 läuft.
+const INHABER_ONLY_PAGES = ['kostensaetze'];
+function istInhaber() { return currentUser?.inhaber === true; }
 // Formgebung (Elastomer/Maplan) und CNC (PTFE) sind komplett getrennte Bereiche -
 // eigenes Board, eigene Endbearbeitung, eigenes Ausgeliefert je Bereich.
 const BOARD_PAGES = ['boardFormgebung', 'boardCnc', 'endbearbeitungFormgebung', 'endbearbeitungCnc', 'ausgeliefertFormgebung', 'ausgeliefertCnc'];
@@ -145,6 +154,9 @@ const DBTYPE_SUFFIX = { Elastomer: 'Formgebung', PTFE: 'Cnc' };
 
 function showPage(page) {
     if (ADMIN_ONLY_PAGES.includes(page) && currentUser?.role !== 'admin') {
+        page = 'boardFormgebung';
+    }
+    if (INHABER_ONLY_PAGES.includes(page) && !istInhaber()) {
         page = 'boardFormgebung';
     }
     document.querySelectorAll('.page').forEach(el => el.classList.add('hidden'));
@@ -2143,7 +2155,7 @@ document.getElementById('articleDetailFskHistorieBtn')?.addEventListener('click'
     }
 });
 
-// --- Kostensätze (nur Admin) ---
+// --- Kostensätze (nur der Inhaber) ---
 // Maschinenstundensätze, Hilfsbetriebe und Lohnsätze. Jede Änderung wird
 // gespeichert und der Server rechnet die Sätze neu - so gibt es nur EINE
 // Stelle mit den Formeln (lib/kostensaetze.js), die später auch die
@@ -2158,7 +2170,7 @@ let kostenSpeicherTimer = null;
 const euro = (n) => (Number(n) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 
 async function ladeKostensaetze() {
-    if (currentUser?.role !== 'admin') return;
+    if (!istInhaber()) return;
     try {
         const res = await fetch(`${API_URL}/kostensaetze`, { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) return;
@@ -2174,6 +2186,7 @@ async function ladeKostensaetze() {
 // Nicht bei jedem Tastendruck speichern, sondern kurz warten - sonst entsteht
 // bei jeder Ziffer eine Anfrage.
 function speichereKostensaetze() {
+    if (!istInhaber()) return;
     clearTimeout(kostenSpeicherTimer);
     const note = document.getElementById('kostenNote');
     if (note) { note.style.color = '#64748b'; note.textContent = 'Wird gespeichert…'; }
