@@ -2488,9 +2488,27 @@ function renderMitarbeiter() {
         tr.appendChild(stdTd);
 
         const satzTd = document.createElement('td');
-        satzTd.innerHTML = berechnet.stundensatz
-            ? `<span class="kosten-satz">${euro(berechnet.stundensatz)}/h</span>`
-            : '<span class="kosten-satz unvollstaendig">Std./Woche fehlt</span>';
+        const satzInput = document.createElement('input');
+        satzInput.type = 'number';
+        satzInput.step = 'any';
+        satzInput.min = '0';
+        satzInput.placeholder = berechnet.stundensatzBerechnet
+            ? berechnet.stundensatzBerechnet.toFixed(2)
+            : (berechnet.stundensatz ? berechnet.stundensatz.toFixed(2) : 'aus Kosten');
+        satzInput.value = m.stundensatzManuell ?? '';
+        satzInput.title = 'Leer lassen = aus den Kosten gerechnet. Eintragen = fester Satz, z.B. kalkulatorischer Unternehmerlohn.';
+        satzInput.addEventListener('input', () => {
+            m.stundensatzManuell = satzInput.value === '' ? undefined : Number(satzInput.value);
+            speichereKostensaetze();
+        });
+        satzTd.appendChild(satzInput);
+        const satzHinweis = document.createElement('div');
+        satzHinweis.className = 'kosten-aufschluesselung';
+        if (!berechnet.stundensatz) satzHinweis.textContent = 'Std./Woche fehlt';
+        else if (berechnet.manuell) satzHinweis.innerHTML = `<b>${euro(berechnet.stundensatz)}/h</b> gesetzt · gerechnet ${euro(berechnet.stundensatzBerechnet)}`;
+        else if (berechnet.angeglichen) satzHinweis.innerHTML = `<b>${euro(berechnet.stundensatz)}/h</b> aus dem Rollenschnitt`;
+        else satzHinweis.innerHTML = `<b>${euro(berechnet.stundensatz)}/h</b>`;
+        satzTd.appendChild(satzHinweis);
         tr.appendChild(satzTd);
 
         const wegTd = document.createElement('td');

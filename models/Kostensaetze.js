@@ -54,6 +54,10 @@ const mitarbeiterSchema = new mongoose.Schema({
   // wird, die Leistung aber dieselbe ist. Die eigenen Kosten bleiben als
   // Information stehen.
   kostenAngleichen: { type: Boolean, default: false },
+  // Stundensatz von Hand setzen statt aus den Kosten zu rechnen - etwa als
+  // kalkulatorischer Unternehmerlohn, wenn sich jemand unter Marktwert bezahlt.
+  // Der gerechnete Satz bleibt zum Vergleich sichtbar.
+  stundensatzManuell: Number,
   wochenstunden: Number,
   aktiv: { type: Boolean, default: true },
   bemerkung: String,
