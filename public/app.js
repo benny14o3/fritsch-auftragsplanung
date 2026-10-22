@@ -2415,6 +2415,14 @@ const MITARBEITER_ROLLEN = [
 ];
 const ROLLE_NAME = Object.fromEntries(MITARBEITER_ROLLEN);
 
+// Formgebung und CNC zahlen unterschiedlich - wer nur in einem Bereich
+// arbeitet, prägt auch nur dessen Rollensatz (siehe lib/kostensaetze.js).
+const MITARBEITER_BEREICHE = [
+    ['beide', 'beide'],
+    ['formgebung', 'Formgebung'],
+    ['cnc', 'CNC'],
+];
+
 function renderMitarbeiter() {
     const tbody = document.getElementById('mitarbeiterTable');
     if (!tbody) return;
@@ -2457,6 +2465,20 @@ function renderMitarbeiter() {
         select.addEventListener('change', () => { m.rolle = select.value; speichereKostensaetze(); renderMitarbeiter(); });
         rolleTd.appendChild(select);
         tr.appendChild(rolleTd);
+
+        const bereichTd = document.createElement('td');
+        const bereichSelect = document.createElement('select');
+        MITARBEITER_BEREICHE.forEach(([wert, text]) => {
+            const opt = document.createElement('option');
+            opt.value = wert;
+            opt.textContent = text;
+            if ((m.bereich || 'beide') === wert) opt.selected = true;
+            bereichSelect.appendChild(opt);
+        });
+        bereichSelect.title = 'Arbeitet die Person nur in der Formgebung oder nur an den CNC-Maschinen? Dann zählt sie auch nur für deren Rollensatz.';
+        bereichSelect.addEventListener('change', () => { m.bereich = bereichSelect.value; speichereKostensaetze(); renderMitarbeiter(); });
+        bereichTd.appendChild(bereichSelect);
+        tr.appendChild(bereichTd);
 
         [['agKostenMonat', ''], ['wochenstunden', '40']].forEach(([feld, platzhalter]) => {
             const td = document.createElement('td');
@@ -2556,12 +2578,20 @@ function renderMitarbeiter() {
     const rollenBox = document.getElementById('rollenSaetze');
     if (rollenBox) {
         const rollen = kostenBerechnet.rollen || [];
+        const jeBereich = kostenBerechnet.rollenBereich || {};
         rollenBox.innerHTML = MITARBEITER_ROLLEN.map(([wert, text]) => {
             const r = rollen.find(x => x.rolle === wert);
+            const fg = (jeBereich.formgebung || []).find(x => x.rolle === wert);
+            const cnc = (jeBereich.cnc || []).find(x => x.rolle === wert);
+            // Nur zeigen, wenn die Bereiche wirklich auseinanderliegen - sonst
+            // steht dieselbe Zahl dreimal da und verwirrt mehr als sie hilft.
+            const satz = x => x ? x.stundensatz.toFixed(2) : '';
+            const getrennt = r && (satz(fg) !== satz(r) || satz(cnc) !== satz(r));
             return `<div class="rollen-kachel">
                 <div class="rollen-name">${text}</div>
                 <div class="rollen-satz">${r ? euro(r.stundensatz) + '/h' : '–'}</div>
                 <div class="rollen-meta">${r ? `${r.anzahl} ${r.anzahl === 1 ? 'Person' : 'Personen'} · ${Math.round(r.produktiveStunden).toLocaleString('de-DE')} h im Jahr` : 'noch niemand zugeordnet'}</div>
+                ${getrennt ? `<div class="rollen-bereich">Formgebung <b>${fg ? euro(fg.stundensatz) : '–'}</b> · CNC <b>${cnc ? euro(cnc.stundensatz) : '–'}</b></div>` : ''}
             </div>`;
         }).join('');
     }

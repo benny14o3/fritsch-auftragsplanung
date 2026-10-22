@@ -145,6 +145,7 @@
         .rollen-kachel .rollen-name { font-size: 13px; font-weight: 700; color: #475569; }
         .rollen-kachel .rollen-satz { font-size: 22px; font-weight: 700; color: #0f172a; margin: 4px 0; }
         .rollen-kachel .rollen-meta { font-size: 12px; color: #94a3b8; }
+        .rollen-kachel .rollen-bereich { font-size: 12px; color: #475569; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0; }
         tr.ohne-rolle td { background: #fffbeb; }
         .kosten-aufschluesselung { font-size: 11px; color: #94a3b8; }
         #kostensaetzePage table input, #kostensaetzePage table select { width: 100%; min-width: 70px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
@@ -856,7 +857,7 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th><th>Firma</th><th>Rolle</th><th>AG-Kosten (€/Monat)</th>
+                                <th>Name</th><th>Firma</th><th>Rolle</th><th>Bereich</th><th>AG-Kosten (€/Monat)</th>
                                 <th>Std./Woche</th><th>produktiv (h/Jahr)</th><th>Satz (€/h, leer = gerechnet)</th><th></th>
                             </tr>
                         </thead>
@@ -868,7 +869,7 @@
 
             <div class="card">
                 <h3>Stundensätze je Rolle</h3>
-                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Ergibt sich aus den Mitarbeitern oben, gewichtet nach produktiven Stunden. Mit diesen Sätzen rechnet die Kalkulation je Arbeitsgang.</p>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Ergibt sich aus den Mitarbeitern oben, gewichtet nach produktiven Stunden. Mit diesen Sätzen rechnet die Kalkulation je Arbeitsgang. Weichen Formgebung und CNC voneinander ab, stehen beide Sätze darunter - gerechnet wird dann mit dem des jeweiligen Bereichs.</p>
                 <div id="rollenSaetze" class="kosten-felder"></div>
             </div>
 

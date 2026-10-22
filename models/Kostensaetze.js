@@ -46,6 +46,11 @@ const mitarbeiterSchema = new mongoose.Schema({
   firma: String,
   persnr: String,
   rolle: { type: String, enum: ['einrichter', 'werker', 'verpacker', 'qs', 'geschaeftsfuehrer', 'verwaltung', ''], default: '' },
+  // In welchem Bereich die Person arbeitet. Wichtig, weil sich die Löhne
+  // zwischen Formgebung und CNC deutlich unterscheiden: Ein teurer CNC-Dreher
+  // darf die Formgebung nicht verteuern und umgekehrt. 'beide' zählt überall
+  // mit (Standard, solange nichts Genaueres bekannt ist).
+  bereich: { type: String, enum: ['formgebung', 'cnc', 'beide'], default: 'beide' },
   // Arbeitgeber-Gesamtkosten im Monat: Bruttolohn plus AG-Anteile zu KV, RV,
   // AV, PV und die Umlagen U1/U2/Insolvenzgeld.
   agKostenMonat: Number,
