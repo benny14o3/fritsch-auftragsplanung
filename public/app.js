@@ -5279,9 +5279,12 @@ function exportPlannerExcel(dbType) {
     const data = boardOrders
         .filter(r => (!r.phase || r.phase === 'produktion') && r.dbType === dbType)
         .map(r => ({
-            'Auftrag': r.auftragsnummer,
-            'Bestellung': r.bestellnummer || '',
+            // Reihenfolge bewusst so: A Artikelnummer, B Auftragsnummer,
+            // C Bezeichnung - danach der Rest wie gehabt.
             'Artikel': r.artikelnummer,
+            'Auftrag': r.auftragsnummer,
+            'Bezeichnung': r.beschreibung || '',
+            'Bestellung': r.bestellnummer || '',
             'Menge (Fertigung)': r.menge,
             'Sollmenge (Bestellung)': r.bestellmenge ?? '',
             'Geliefert (Ist)': gelieferteMenge(r),
