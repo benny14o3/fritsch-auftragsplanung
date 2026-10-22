@@ -2397,6 +2397,7 @@ const MITARBEITER_ROLLEN = [
     ['verpacker', 'Verpacker'],
     ['qs', 'QS-Prüfer'],
     ['geschaeftsfuehrer', 'Geschäftsführer'],
+    ['verwaltung', 'Verwaltung/Büro'],
 ];
 const ROLLE_NAME = Object.fromEntries(MITARBEITER_ROLLEN);
 

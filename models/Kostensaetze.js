@@ -45,7 +45,7 @@ const mitarbeiterSchema = new mongoose.Schema({
   name: { type: String, required: true },
   firma: String,
   persnr: String,
-  rolle: { type: String, enum: ['einrichter', 'werker', 'verpacker', 'qs', 'geschaeftsfuehrer', ''], default: '' },
+  rolle: { type: String, enum: ['einrichter', 'werker', 'verpacker', 'qs', 'geschaeftsfuehrer', 'verwaltung', ''], default: '' },
   // Arbeitgeber-Gesamtkosten im Monat: Bruttolohn plus AG-Anteile zu KV, RV,
   // AV, PV und die Umlagen U1/U2/Insolvenzgeld.
   agKostenMonat: Number,
