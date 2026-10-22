@@ -1292,6 +1292,7 @@ function openArticleDetailModal(material) {
     articleDetailPlpRows = (article.plp || []).map(r => ({ ...r }));
     articleDetailArbeitsgaenge = (article.arbeitsgaenge || []).map(r => ({ ...r }));
     articleDetailKomponenten = (article.komponenten || []).map(k => ({ ...k }));
+    articleDetailZusatzmaterial = (article.zusatzmaterial || []).map(m => ({ ...m }));
     renderArticleDetailArbeitsgaenge();
     renderArticleDetailMaterial();
     document.getElementById('articleDetailTitle').textContent = `${material} · ${article.bezeichnung || ''}`;
@@ -1430,6 +1431,23 @@ const ROLLE_LABEL = { einrichter: 'Einrichter', maschinenbediener: 'Bediener', k
 // nichts, zugekaufte Mischung und Trägerteile gehen mit ihrem Preis in die
 // Kalkulation ein.
 let articleDetailKomponenten = [];
+let articleDetailZusatzmaterial = [];
+
+// Was kostet diese Materialposition je gefertigtem Teil?
+function materialProTeil(m) {
+    const preis = Number(m.preis) || 0;
+    if (!preis) return 0;
+    switch (m.preisEinheit) {
+        case 'hundert': return preis / 100;
+        case 'kg': return preis * ((Number(m.gewichtG) || 0) / 1000);
+        case 'platte': return (Number(m.teileProPlatte) || 0) > 0 ? preis / Number(m.teileProPlatte) : 0;
+        default: return preis; // je Stück
+    }
+}
+
+function euroJeTeil(wert) {
+    return wert > 0 ? `${wert.toLocaleString('de-DE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} €/Teil` : '–';
+}
 
 function renderArticleDetailMaterial() {
     const box = document.getElementById('articleDetailMaterial');
@@ -1466,8 +1484,29 @@ function renderArticleDetailMaterial() {
                 <span class="material-marke${zukauf ? ' zukauf' : ''}">${zukauf ? 'Zukauf' : 'beigestellt'}</span>
             </div>
             <div class="material-felder">${felder}</div>
+            ${zukauf ? `<span class="material-ergebnis">${euroJeTeil(materialProTeil(k))}</span>` : ''}
         </div>`;
-    }).join('');
+    }).join('') + renderZusatzmaterial();
+
+    box.querySelectorAll('[data-zusatz-feld]').forEach(el => {
+        const ereignis = el.tagName === 'SELECT' ? 'change' : 'input';
+        el.addEventListener(ereignis, () => {
+            const m = articleDetailZusatzmaterial[Number(el.dataset.zusatzIndex)];
+            const feld = el.dataset.zusatzFeld;
+            m[feld] = (el.type === 'number') ? (el.value === '' ? undefined : Number(el.value)) : el.value;
+            renderArticleDetailMaterial();
+        });
+    });
+    box.querySelectorAll('[data-zusatz-weg]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            articleDetailZusatzmaterial.splice(Number(btn.dataset.zusatzWeg), 1);
+            renderArticleDetailMaterial();
+        });
+    });
+    box.querySelector('[data-zusatz-neu]')?.addEventListener('click', () => {
+        articleDetailZusatzmaterial.push({ bezeichnung: 'Platte', preisEinheit: 'platte' });
+        renderArticleDetailMaterial();
+    });
 
     box.querySelectorAll('[data-material-zukauf]').forEach(cb => {
         cb.addEventListener('change', () => {
@@ -1597,6 +1636,48 @@ document.getElementById('articleDetailPlanUebernehmenBtn')?.addEventListener('cl
     note.style.color = '#475569';
     note.textContent = `Arbeitsplan von ${material} übernommen - noch nicht gespeichert.`;
 });
+
+// Material außerhalb der Stückliste - beim Drehen vor allem die Platte, aus
+// der die Teile herausgearbeitet werden.
+function renderZusatzmaterial() {
+    const zeilen = articleDetailZusatzmaterial.map((m, idx) => {
+        const einheit = m.preisEinheit || 'platte';
+        return `
+        <div class="material-zeile zukauf">
+            <div class="material-kopf">
+                <span style="font-size:16px;">🧱</span>
+                <input type="text" class="material-bezeichnung" data-zusatz-feld="bezeichnung" data-zusatz-index="${idx}"
+                    value="${escapeHtml(m.bezeichnung || '')}" placeholder="z.B. PTFE-Platte 10 mm">
+            </div>
+            <div class="material-felder">
+                <label>Preis
+                    <input type="number" min="0" step="any" data-zusatz-feld="preis" data-zusatz-index="${idx}" value="${m.preis ?? ''}"> €
+                </label>
+                <label>je
+                    <select data-zusatz-feld="preisEinheit" data-zusatz-index="${idx}">
+                        <option value="platte"${einheit === 'platte' ? ' selected' : ''}>Platte / Stange</option>
+                        <option value="kg"${einheit === 'kg' ? ' selected' : ''}>Kilo</option>
+                        <option value="stueck"${einheit === 'stueck' ? ' selected' : ''}>Stück</option>
+                        <option value="hundert"${einheit === 'hundert' ? ' selected' : ''}>100 Stück</option>
+                    </select>
+                </label>
+                ${einheit === 'platte' ? `<label>Ausbeute
+                    <input type="number" min="1" step="any" data-zusatz-feld="teileProPlatte" data-zusatz-index="${idx}" value="${m.teileProPlatte ?? ''}"> Teile
+                </label>` : ''}
+                ${einheit === 'kg' ? `<label>Rohteilgewicht
+                    <input type="number" min="0" step="any" data-zusatz-feld="gewichtG" data-zusatz-index="${idx}" value="${m.gewichtG ?? ''}"> g
+                </label>` : ''}
+                <button type="button" class="danger" data-zusatz-weg="${idx}" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:4px;padding:4px 8px;cursor:pointer;">🗑</button>
+            </div>
+            <span class="material-ergebnis">${euroJeTeil(materialProTeil(m))}</span>
+        </div>`;
+    }).join('');
+
+    return zeilen + `<div style="padding: 10px 8px;">
+        <button type="button" class="btn btn-secondary" data-zusatz-neu style="width:auto;">+ Material außerhalb der Stückliste (z.B. Platte)</button>
+        <div class="arbeitsgang-hinweis" style="margin-top:6px;">Beim Drehen zählt das <b>Zuschnitt</b>-Gewicht bzw. die Ausbeute je Platte - die Späne sind bezahlt und trotzdem weg.</div>
+    </div>`;
+}
 
 const PLP_TYP_LABEL = { prozess: 'Prozessschritt', masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.-Prüfung' };
 
@@ -1921,6 +2002,7 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
                 plp: articleDetailPlpRows.filter(r => (r.bezeichnung || '').trim()),
                 arbeitsgaenge: articleDetailArbeitsgaenge,
                 komponenten: articleDetailKomponenten,
+                zusatzmaterial: articleDetailZusatzmaterial.filter(m => (m.bezeichnung || '').trim()),
             }),
         });
         const data = await res.json();

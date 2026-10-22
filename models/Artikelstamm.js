@@ -61,6 +61,21 @@ const plpEintragSchema = new mongoose.Schema({
   pruefhaeufigkeit: String,
 });
 
+// Material, das nicht in der Stückliste steht, aber Geld kostet - beim Drehen
+// vor allem die Platte oder der Rundstab, aus dem die Teile herausgearbeitet
+// werden. Abgerechnet wird entweder je Platte mit der Ausbeute (wie viele
+// Teile gehen heraus) oder über das Rohteilgewicht mal Kilopreis. Wichtig: Es
+// zählt das ZUSCHNITT-Gewicht, nicht das Fertigteilgewicht - die Späne sind
+// bezahlt und trotzdem weg.
+const zusatzmaterialSchema = new mongoose.Schema({
+  bezeichnung: { type: String, required: true },
+  preis: Number,
+  preisEinheit: { type: String, enum: ['platte', 'kg', 'stueck', 'hundert'], default: 'platte' },
+  teileProPlatte: Number,  // Ausbeute, nur bei Abrechnung je Platte
+  gewichtG: Number,        // Rohteilgewicht je Teil, nur bei Kilopreis
+  bemerkung: String,
+}, { _id: false });
+
 // Ein Arbeitsgang, den dieser Artikel durchläuft (Katalog: models/Arbeitsgang.js).
 // Die Werte überschreiben die Vorgaben aus dem Katalog, weil sie sich je Artikel
 // unterscheiden: eine kleine Dichtung kontrolliert sich schneller als ein
@@ -89,6 +104,8 @@ const artikelSchema = new mongoose.Schema({
   plp: [plpEintragSchema],
   // Arbeitsplan für die Kalkulation - welche Schritte dieser Artikel durchläuft.
   arbeitsgaenge: [artikelArbeitsgangSchema],
+  // Zugekauftes Material außerhalb der Stückliste (Platten, Rundstäbe, ...).
+  zusatzmaterial: [zusatzmaterialSchema],
 }, { _id: false });
 
 const artikelstammSchema = new mongoose.Schema({
