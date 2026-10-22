@@ -38,6 +38,22 @@ const hilfsbetriebSchema = new mongoose.Schema({
   bemerkung: String,
 }, { _id: false });
 
+// Ein Mitarbeiter mit seinen tatsächlichen Arbeitgeberkosten aus der
+// Lohnabrechnung. Daraus ergibt sich der Stundensatz seiner Rolle - viel
+// genauer als ein pauschaler Lohnsatz je Gruppe.
+const mitarbeiterSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  firma: String,
+  persnr: String,
+  rolle: { type: String, enum: ['einrichter', 'werker', 'verpacker', 'qs', 'geschaeftsfuehrer', ''], default: '' },
+  // Arbeitgeber-Gesamtkosten im Monat: Bruttolohn plus AG-Anteile zu KV, RV,
+  // AV, PV und die Umlagen U1/U2/Insolvenzgeld.
+  agKostenMonat: Number,
+  wochenstunden: Number,
+  aktiv: { type: Boolean, default: true },
+  bemerkung: String,
+}, { _id: false });
+
 const lohnSchema = new mongoose.Schema({
   rolle: { type: String, enum: ['einrichter', 'maschinenbediener', 'kontrolle'], required: true },
   // Arbeitgeber-Gesamtaufwand pro Jahr und Person, am besten aus dem Lohnjournal
@@ -56,12 +72,16 @@ const kostensaetzeSchema = new mongoose.Schema({
     auslastungProzent: { type: Number, default: 77 },
     jahresstundenManuell: Number,   // überschreibt die Rechnung oben
     zinssatzProzent: { type: Number, default: 5 },
+    // Abzüge von den Arbeitstagen, um auf die produktiven Stunden zu kommen.
+    urlaubstageProJahr: { type: Number, default: 30 },
+    krankheitstageProJahr: { type: Number, default: 10 },
     strompreisCtProKwh: Number,
     raumkostenProQmJahr: Number,
   },
   maschinen: [maschineKostenSchema],
   hilfsbetriebe: [hilfsbetriebSchema],
   loehne: [lohnSchema],
+  mitarbeiter: [mitarbeiterSchema],
   zuschlaege: {
     verwaltungVertriebProzent: Number,
     ausschussProzent: Number,

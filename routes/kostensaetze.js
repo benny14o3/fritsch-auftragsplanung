@@ -101,6 +101,7 @@ router.put('/', authMiddleware, adminMiddleware, async (req, res) => {
     if (maschinen !== undefined) doc.maschinen = maschinen;
     if (hilfsbetriebe !== undefined) doc.hilfsbetriebe = hilfsbetriebe;
     if (loehne !== undefined) doc.loehne = loehne;
+    if (req.body.mitarbeiter !== undefined) doc.mitarbeiter = req.body.mitarbeiter;
     if (zuschlaege !== undefined) doc.zuschlaege = zuschlaege;
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();

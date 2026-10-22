@@ -2218,6 +2218,8 @@ function renderKostensaetze({ nurErgebnisse = false } = {}) {
             kostenFeld('allgemein.zinssatzProzent', 'Kalkulatorischer Zinssatz', 'üblich 4 bis 6 %', '%'),
             kostenFeld('allgemein.strompreisCtProKwh', 'Strompreis', '', 'ct/kWh'),
             kostenFeld('allgemein.raumkostenProQmJahr', 'Raumkosten', 'Miete plus Heizung und Nebenkosten', '€/m² und Jahr'),
+            kostenFeld('allgemein.urlaubstageProJahr', 'Urlaubstage', 'wird von den Arbeitstagen abgezogen'),
+            kostenFeld('allgemein.krankheitstageProJahr', 'Krankheitstage', 'Durchschnitt je Mitarbeiter'),
         ].join('');
 
         document.getElementById('kostenZuschlaege').innerHTML = [
@@ -2229,6 +2231,7 @@ function renderKostensaetze({ nurErgebnisse = false } = {}) {
         renderKostenHilfsbetriebe();
         renderKostenMaschinen();
         renderKostenLoehne();
+        renderMitarbeiter();
 
         document.querySelectorAll('[data-kosten-pfad]').forEach(input => {
             input.addEventListener('input', () => {
@@ -2242,6 +2245,7 @@ function renderKostensaetze({ nurErgebnisse = false } = {}) {
         renderKostenHilfsbetriebe();
         renderKostenMaschinen();
         renderKostenLoehne();
+        renderMitarbeiter();
     }
 
     const jahr = document.getElementById('kostenJahresstunden');
@@ -2385,6 +2389,131 @@ function renderKostenHilfsbetriebe() {
 }
 
 const LOHN_ROLLE_LABEL = { einrichter: 'Einrichter', maschinenbediener: 'Maschinenbediener', kontrolle: 'Kontrollpersonal' };
+
+// Die Rollen, nach denen die Kalkulation den Lohn verteilt.
+const MITARBEITER_ROLLEN = [
+    ['einrichter', 'Einrichter'],
+    ['werker', 'Werker'],
+    ['verpacker', 'Verpacker'],
+    ['qs', 'QS-Prüfer'],
+    ['geschaeftsfuehrer', 'Geschäftsführer'],
+];
+const ROLLE_NAME = Object.fromEntries(MITARBEITER_ROLLEN);
+
+function renderMitarbeiter() {
+    const tbody = document.getElementById('mitarbeiterTable');
+    if (!tbody) return;
+    if (!kostenDaten.mitarbeiter) kostenDaten.mitarbeiter = [];
+    tbody.innerHTML = '';
+
+    kostenDaten.mitarbeiter.forEach((m, idx) => {
+        const berechnet = (kostenBerechnet.mitarbeiter || [])[idx] || {};
+        const tr = document.createElement('tr');
+        if (!m.rolle) tr.className = 'ohne-rolle';
+
+        const feldText = (feld, breite) => {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = m[feld] ?? '';
+            if (breite) input.style.minWidth = breite;
+            input.addEventListener('input', () => { m[feld] = input.value; speichereKostensaetze(); });
+            td.appendChild(input);
+            tr.appendChild(td);
+        };
+        feldText('name', '160px');
+        feldText('firma', '120px');
+
+        const rolleTd = document.createElement('td');
+        const select = document.createElement('select');
+        [['', '– bitte zuordnen –'], ...MITARBEITER_ROLLEN].forEach(([wert, text]) => {
+            const opt = document.createElement('option');
+            opt.value = wert;
+            opt.textContent = text;
+            if ((m.rolle || '') === wert) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.addEventListener('change', () => { m.rolle = select.value; speichereKostensaetze(); renderMitarbeiter(); });
+        rolleTd.appendChild(select);
+        tr.appendChild(rolleTd);
+
+        [['agKostenMonat', ''], ['wochenstunden', '40']].forEach(([feld, platzhalter]) => {
+            const td = document.createElement('td');
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.min = '0';
+            input.placeholder = platzhalter;
+            input.value = m[feld] ?? '';
+            input.addEventListener('input', () => {
+                m[feld] = input.value === '' ? undefined : Number(input.value);
+                speichereKostensaetze();
+            });
+            td.appendChild(input);
+            tr.appendChild(td);
+        });
+
+        const stdTd = document.createElement('td');
+        stdTd.innerHTML = berechnet.produktiveStunden
+            ? `<span class="kosten-aufschluesselung">${Math.round(berechnet.produktiveStunden).toLocaleString('de-DE')} h</span>`
+            : '<span class="kosten-aufschluesselung">–</span>';
+        tr.appendChild(stdTd);
+
+        const satzTd = document.createElement('td');
+        satzTd.innerHTML = berechnet.stundensatz
+            ? `<span class="kosten-satz">${euro(berechnet.stundensatz)}/h</span>`
+            : '<span class="kosten-satz unvollstaendig">Std./Woche fehlt</span>';
+        tr.appendChild(satzTd);
+
+        const wegTd = document.createElement('td');
+        const wegBtn = document.createElement('button');
+        wegBtn.className = 'danger';
+        wegBtn.textContent = '🗑';
+        wegBtn.addEventListener('click', () => {
+            kostenDaten.mitarbeiter.splice(idx, 1);
+            speichereKostensaetze();
+            renderMitarbeiter();
+        });
+        wegTd.appendChild(wegBtn);
+        tr.appendChild(wegTd);
+        tbody.appendChild(tr);
+    });
+
+    const stand = document.getElementById('mitarbeiterStand');
+    if (stand) {
+        const liste = kostenBerechnet.mitarbeiter || [];
+        const ohneRolle = liste.filter(m => !m.rolle).length;
+        const ohneStunden = liste.filter(m => !m.wochenstunden).length;
+        const summe = liste.reduce((s, m) => s + m.agKostenMonat, 0);
+        stand.style.background = (ohneRolle || ohneStunden) ? '#fffbeb' : '#f0fdf4';
+        stand.style.borderColor = (ohneRolle || ohneStunden) ? '#fcd34d' : '#bbf7d0';
+        stand.style.color = (ohneRolle || ohneStunden) ? '#92400e' : '#15803d';
+        stand.innerHTML = `${liste.length} Mitarbeiter · ${euro(summe)} Arbeitgeberkosten im Monat · gerechnet mit ${kostenBerechnet.arbeitstageNetto} produktiven Arbeitstagen`
+            + (ohneRolle ? ` · <b>${ohneRolle} ohne Rolle</b>` : '')
+            + (ohneStunden ? ` · <b>${ohneStunden} ohne Wochenstunden</b>` : '');
+    }
+
+    const rollenBox = document.getElementById('rollenSaetze');
+    if (rollenBox) {
+        const rollen = kostenBerechnet.rollen || [];
+        rollenBox.innerHTML = MITARBEITER_ROLLEN.map(([wert, text]) => {
+            const r = rollen.find(x => x.rolle === wert);
+            return `<div class="rollen-kachel">
+                <div class="rollen-name">${text}</div>
+                <div class="rollen-satz">${r ? euro(r.stundensatz) + '/h' : '–'}</div>
+                <div class="rollen-meta">${r ? `${r.anzahl} ${r.anzahl === 1 ? 'Person' : 'Personen'} · ${Math.round(r.produktiveStunden).toLocaleString('de-DE')} h im Jahr` : 'noch niemand zugeordnet'}</div>
+            </div>`;
+        }).join('');
+    }
+}
+
+document.getElementById('mitarbeiterAddBtn')?.addEventListener('click', () => {
+    if (!kostenDaten) return;
+    if (!kostenDaten.mitarbeiter) kostenDaten.mitarbeiter = [];
+    kostenDaten.mitarbeiter.push({ name: 'Neuer Mitarbeiter', rolle: '', aktiv: true });
+    speichereKostensaetze();
+    renderMitarbeiter();
+});
 
 function renderKostenLoehne() {
     const tbody = document.getElementById('kostenLoehneTable');

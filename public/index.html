@@ -141,6 +141,11 @@
         .kosten-ergebnis-zeile { margin-top: 16px; padding: 12px 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; font-size: 14px; color: #15803d; font-weight: 600; }
         .kosten-satz { font-weight: 700; color: #0f172a; white-space: nowrap; }
         .kosten-satz.unvollstaendig { color: #b45309; font-weight: 600; }
+        .rollen-kachel { padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+        .rollen-kachel .rollen-name { font-size: 13px; font-weight: 700; color: #475569; }
+        .rollen-kachel .rollen-satz { font-size: 22px; font-weight: 700; color: #0f172a; margin: 4px 0; }
+        .rollen-kachel .rollen-meta { font-size: 12px; color: #94a3b8; }
+        tr.ohne-rolle td { background: #fffbeb; }
         .kosten-aufschluesselung { font-size: 11px; color: #94a3b8; }
         #kostensaetzePage table input, #kostensaetzePage table select { width: 100%; min-width: 70px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
 
@@ -844,6 +849,30 @@
             </div>
 
             <div class="card">
+                <h3>Mitarbeiter</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Arbeitgeberkosten je Monat aus der Lohnabrechnung: Bruttolohn plus Arbeitgeberanteile zu Kranken-, Renten-, Arbeitslosen- und Pflegeversicherung sowie die Umlagen U1, U2 und Insolvenzgeld. Trag die Wochenstunden ein und ordne die Rolle zu - daraus ergibt sich der Stundensatz je Rolle, mit dem die Kalkulation rechnet.</p>
+                <div id="mitarbeiterStand" class="kosten-ergebnis-zeile" style="margin-top:0;margin-bottom:16px;"></div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>Firma</th><th>Rolle</th><th>AG-Kosten (€/Monat)</th>
+                                <th>Std./Woche</th><th>produktiv (h/Jahr)</th><th>Kosten je Stunde</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="mitarbeiterTable"></tbody>
+                    </table>
+                </div>
+                <button class="btn btn-primary" id="mitarbeiterAddBtn" style="width: auto; margin-top: 12px;">+ Mitarbeiter</button>
+            </div>
+
+            <div class="card">
+                <h3>Stundensätze je Rolle</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Ergibt sich aus den Mitarbeitern oben, gewichtet nach produktiven Stunden. Mit diesen Sätzen rechnet die Kalkulation je Arbeitsgang.</p>
+                <div id="rollenSaetze" class="kosten-felder"></div>
+            </div>
+
+            <div class="card hidden">
                 <h3>Lohnsätze</h3>
                 <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">Am genauesten ist der <b>Arbeitgeber-Gesamtaufwand</b> aus dem Lohnjournal - da stecken Sozialabgaben, Umlagen und Sonderzahlungen schon drin. Produktive Stunden: von rund 2.080 bezahlten Stunden bleiben nach Urlaub, Feiertagen, Krankheit und Nebenzeiten meist 1.350 bis 1.450.</p>
                 <div class="table-container">
