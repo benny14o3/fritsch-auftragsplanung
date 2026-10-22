@@ -3386,7 +3386,9 @@ function buildCardElement(order, { spalte = null } = {}) {
     if (order.komponenten && order.komponenten.length > 0) {
         const komplett = order.komponenten.every(k => k.wareneingang);
         const zeilen = order.komponenten.map((k, idx) => {
-            const icon = k.wareneingang ? '✅' : '⭕';
+            // Eingang da, aber keine Charge: bewusst nicht grün. Die Planung
+            // hält das nicht auf (die Ware liegt ja da), der Nachweis fehlt aber.
+            const icon = k.wareneingang ? (chargeFehlt(k) ? '⚠️' : '✅') : '⭕';
             const label = k.artikelnummer ? `${k.artikelnummer} - ${k.bezeichnung}` : k.bezeichnung;
             // Safari zeigt bei <input type="date"> anders als Chrome kein natives
             // "x" zum Löschen an - deshalb einen eigenen Löschen-Button, der in
@@ -3402,7 +3404,7 @@ function buildCardElement(order, { spalte = null } = {}) {
                 : `<label class="komp-bild-btn" title="Foto der Charge aufnehmen/hochladen">📷<input type="file" accept="image/*" capture="environment" class="komp-bild-input" data-komp-index="${idx}" hidden></label>`;
             const chargeInput = k.bezeichnung === 'Werkzeug' ? '' : `
                 <div class="komponente-charge-zeile">
-                    <input type="text" class="komp-charge" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">
+                    <input type="text" class="komp-charge${chargeFehlt(k) ? ' charge-fehlt' : ''}" data-komp-index="${idx}" placeholder="Charge (Rückverfolgbarkeit)" value="${escapeHtml(k.charge || '')}">
                     ${bildBtn}
                 </div>`;
             return `<div class="komponente-zeile-gruppe">
@@ -4985,6 +4987,18 @@ async function moveOrder(orderId, maschineId, position) {
     }
 }
 
+// Das Werkzeug ist keine Lieferanten-Komponente - dafür gibt es weder Charge
+// noch Wareneingangs-Foto. Alles andere braucht eine Chargennummer, sonst ist
+// bei einer Reklamation nicht mehr feststellbar, aus welchem Material das Teil
+// stammt (Rückverfolgbarkeit nach ISO 9001).
+function brauchtCharge(komponente) {
+    return komponente?.bezeichnung !== 'Werkzeug';
+}
+
+function chargeFehlt(komponente) {
+    return !!komponente?.wareneingang && brauchtCharge(komponente) && !(komponente.charge || '').trim();
+}
+
 function istKomponentenBereit(order) {
     return !order.komponenten || order.komponenten.length === 0 || order.komponenten.every(k => k.wareneingang);
 }
@@ -5003,6 +5017,22 @@ function toDateInputValue(d) {
 async function setKomponenteDatum(orderId, idx, dateStr) {
     const order = boardOrders.find(o => o._id === orderId);
     if (!order || !order.komponenten?.[idx]) return;
+    const komponente = order.komponenten[idx];
+
+    // Ein Wareneingang ohne Chargennummer ist für die Rückverfolgbarkeit
+    // wertlos - deshalb wird sie beim Eintragen verlangt und nicht bloß
+    // angeboten. Beim Löschen des Datums natürlich nicht.
+    if (dateStr && brauchtCharge(komponente) && !(komponente.charge || '').trim()) {
+        const label = komponente.artikelnummer ? `${komponente.artikelnummer} - ${komponente.bezeichnung}` : komponente.bezeichnung;
+        const eingabe = prompt(`Chargennummer des Lieferanten für:\n${label}\n\n(steht auf dem Lieferschein oder dem Gebinde)`, '');
+        if (eingabe === null || !eingabe.trim()) {
+            // Ohne Charge kein Eingang: das Eingabefeld wieder auf den alten
+            // Stand bringen, sonst steht dort ein Datum, das nirgends ankommt.
+            renderAll();
+            return;
+        }
+        komponente.charge = eingabe.trim();
+    }
 
     const warBereitVorher = istKomponentenBereit(order);
     order.komponenten[idx].wareneingang = dateStr ? new Date(dateStr).toISOString() : null;
