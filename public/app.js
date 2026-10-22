@@ -3297,6 +3297,17 @@ function startBoardPolling() {
 
 // Fragt nur die Versionsnummer ab (ein paar Byte) und lädt die Aufträge nur
 // dann neu, wenn sich wirklich etwas geändert hat.
+// Eine Änderung an den Aufträgen betrifft nicht nur das Board: steht die
+// Wareneingangsliste offen, soll sie denselben Stand zeigen, ohne dass jemand
+// die Seite wechseln muss. Sie wird nur geladen, wenn sie wirklich sichtbar
+// ist - sonst liefe bei jedem Ereignis eine Abfrage für eine Seite, die
+// niemand ansieht.
+function aktualisiereOffeneAnsichten() {
+    fetchBoard();
+    const we = document.getElementById('wareneingaengePage');
+    if (we && !we.classList.contains('hidden')) fetchWareneingaenge();
+}
+
 async function abgleichBoard() {
     try {
         const res = await fetch(`${API_URL}/orders/version`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -3305,7 +3316,7 @@ async function abgleichBoard() {
         if (letzteVersion === null) { letzteVersion = version; return; }
         if (version !== letzteVersion) {
             letzteVersion = version;
-            fetchBoard();
+            aktualisiereOffeneAnsichten();
         }
     } catch (err) { /* nächster Abgleich versucht es erneut */ }
 }
@@ -3338,7 +3349,7 @@ async function starteLiveVerbindung() {
                     const daten = JSON.parse(datenZeile.slice(5).trim());
                     if (daten.version === letzteVersion) return; // eigene Änderung, schon im Bild
                     letzteVersion = daten.version;
-                    if (block.includes('event: aenderung')) fetchBoard();
+                    if (block.includes('event: aenderung')) aktualisiereOffeneAnsichten();
                 } catch (err) { /* unlesbares Ereignis überspringen */ }
             });
         }
