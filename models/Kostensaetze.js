@@ -49,6 +49,11 @@ const mitarbeiterSchema = new mongoose.Schema({
   // Arbeitgeber-Gesamtkosten im Monat: Bruttolohn plus AG-Anteile zu KV, RV,
   // AV, PV und die Umlagen U1/U2/Insolvenzgeld.
   agKostenMonat: Number,
+  // Statt der eigenen Kosten den Durchschnitt der übrigen Personen dieser Rolle
+  // ansetzen - z.B. wenn jemand über eine andere Firma zu günstig abgerechnet
+  // wird, die Leistung aber dieselbe ist. Die eigenen Kosten bleiben als
+  // Information stehen.
+  kostenAngleichen: { type: Boolean, default: false },
   wochenstunden: Number,
   aktiv: { type: Boolean, default: true },
   bemerkung: String,

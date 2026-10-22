@@ -2457,6 +2457,27 @@ function renderMitarbeiter() {
                 speichereKostensaetze();
             });
             td.appendChild(input);
+
+            // Wer über eine andere Firma günstiger abgerechnet wird, kann auf den
+            // Durchschnitt seiner Rolle angehoben werden.
+            if (feld === 'agKostenMonat') {
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap;';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.checked = !!m.kostenAngleichen;
+                box.style.cssText = 'width:14px;height:14px;min-width:auto;';
+                box.addEventListener('change', () => { m.kostenAngleichen = box.checked; speichereKostensaetze(); });
+                label.appendChild(box);
+                label.appendChild(document.createTextNode('auf Rollenschnitt'));
+                td.appendChild(label);
+                if (berechnet.angeglichen) {
+                    const hinweis = document.createElement('div');
+                    hinweis.className = 'kosten-aufschluesselung';
+                    hinweis.textContent = `gerechnet mit ${euro(berechnet.agKostenMonat)} statt ${euro(berechnet.agKostenEigen)}`;
+                    td.appendChild(hinweis);
+                }
+            }
             tr.appendChild(td);
         });
 
