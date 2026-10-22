@@ -61,6 +61,47 @@ router.get('/events', authMiddleware, (req, res) => {
 // ein paar Byte statt der kompletten Auftragsliste.
 router.get('/version', authMiddleware, (req, res) => res.json({ version: aktuelleVersion() }));
 
+// Alle Wareneingänge als flache Liste, über sämtliche Phasen hinweg - also
+// auch aus dem Archiv, denn für die Rückverfolgbarkeit zählt gerade der alte
+// Beleg. Eine Zeile je Komponente mit Eingangsdatum, nicht je Auftrag.
+//
+// Muss vor den /:orderId-Routen stehen, sonst würde "wareneingaenge" als
+// Auftrags-ID gelesen. Bilddaten bleiben wie überall draußen; ob ein Foto
+// vorliegt, verrät der Dateiname.
+router.get('/wareneingaenge', authMiddleware, async (req, res) => {
+  try {
+    const orders = await Order.find({ 'komponenten.wareneingang': { $ne: null } })
+      .select('auftragsnummer artikelnummer beschreibung bestellnummer dbType phase komponenten')
+      .lean();
+    const zeilen = [];
+    orders.forEach(o => {
+      (o.komponenten || []).forEach((k, index) => {
+        // $ne: null greift auf Auftragsebene - innerhalb des Auftrags können
+        // einzelne Komponenten trotzdem ohne Eingang sein. Deshalb hier noch
+        // einmal je Komponente prüfen.
+        if (!k.wareneingang) return;
+        zeilen.push({
+          orderId: o._id,
+          index,
+          auftragsnummer: o.auftragsnummer || '',
+          artikelnummer: o.artikelnummer || '',
+          beschreibung: o.beschreibung || '',
+          bestellnummer: o.bestellnummer || '',
+          dbType: o.dbType || '',
+          phase: o.phase || '',
+          wareneingang: k.wareneingang,
+          komponenteArtikelnummer: k.artikelnummer || '',
+          komponenteBezeichnung: k.bezeichnung || '',
+          charge: k.charge || '',
+          bild: k.bild ? { filename: k.bild.filename, uploadedAt: k.bild.uploadedAt } : null,
+        });
+      });
+    });
+    zeilen.sort((a, b) => new Date(b.wareneingang) - new Date(a.wareneingang));
+    res.json(zeilen);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Fügt einen neuen Excel-Import zur bestehenden Planung hinzu, statt sie zu
 // ersetzen - bestehende Aufträge (in jeder Phase) bleiben unangetastet. Anhand
 // der Auftragsnummer erkannte Duplikate (egal in welcher Phase) werden

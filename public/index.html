@@ -383,6 +383,8 @@
             <div class="sidebar-item" data-page="endbearbeitungCnc">🔧 Endbearbeitung</div>
             <div class="sidebar-item" data-page="ausgeliefertCnc">📦 Ausgeliefert</div>
             <div class="sidebar-item" data-page="archivCnc">🗄️ Archiv</div>
+            <div class="sidebar-section-label">Allgemein</div>
+            <div class="sidebar-item" data-page="wareneingaenge">📥 Wareneingänge</div>
             <div class="sidebar-item admin-only hidden" data-page="databases">💾 Datenbanken</div>
             <div class="sidebar-item inhaber-only hidden" data-page="kostensaetze">💶 Kostensätze</div>
             <div class="sidebar-section-label">Werkstatt</div>
@@ -797,6 +799,45 @@
                             </tr>
                         </thead>
                         <tbody id="archivTableCnc"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="wareneingaengePage" class="page hidden">
+            <div class="header">
+                <h2>Wareneingänge</h2>
+                <p>Jede erfasste Lieferung mit Charge und Foto - über alle Bereiche und auch aus dem Archiv</p>
+            </div>
+            <div class="card">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;">
+                    <input type="search" id="weSuche" placeholder="Suchen: Auftrag, Artikel, Komponente, Charge..." style="flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <select id="weBereich" style="padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                        <option value="">alle Bereiche</option>
+                        <option value="Elastomer">Formgebung</option>
+                        <option value="PTFE">CNC</option>
+                    </select>
+                    <label style="font-size: 13px; color: #64748b;">von <input type="date" id="weVon" style="padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;"></label>
+                    <label style="font-size: 13px; color: #64748b;">bis <input type="date" id="weBis" style="padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;"></label>
+                    <label style="display: flex; align-items: center; gap: 5px; font-size: 13px; color: #64748b;"><input type="checkbox" id="weNurOhneFoto" style="width: 15px; height: 15px;"> nur ohne Foto</label>
+                    <button class="btn btn-secondary" id="weExportBtn" style="width: auto;">⬇ Excel</button>
+                </div>
+                <div id="weStand" class="kosten-ergebnis-zeile" style="margin-top: 0; margin-bottom: 14px;"></div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Eingang</th>
+                                <th>Komponente</th>
+                                <th>Charge</th>
+                                <th>Foto</th>
+                                <th>Auftrag</th>
+                                <th>Artikel</th>
+                                <th>Bereich</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="weTable"></tbody>
                     </table>
                 </div>
             </div>

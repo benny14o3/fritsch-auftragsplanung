@@ -168,6 +168,7 @@ function showPage(page) {
     if (BOARD_PAGES.includes(page)) loadExistingBoard();
     if (ARCHIV_PAGES[page]) fetchArchiv(ARCHIV_PAGES[page]);
     if (page === 'databases') { fetchWerker(); fetchBackupStand(); ladeArbeitsgangKatalog(); }
+    if (page === 'wareneingaenge') fetchWareneingaenge();
     if (page === 'kostensaetze') ladeKostensaetze();
 }
 
@@ -2154,6 +2155,140 @@ document.getElementById('articleDetailFskHistorieBtn')?.addEventListener('click'
         note.textContent = 'Export fehlgeschlagen.';
     }
 });
+
+// --- Wareneingänge ---
+// Eine Zeile je gelieferter Komponente, über alle Bereiche und Phasen hinweg -
+// inklusive Archiv, denn gerade bei einer Reklamation wird nach einem alten
+// Wareneingang gesucht. Charge und Foto sind der Nachweis für die
+// Rückverfolgbarkeit nach ISO 9001.
+
+let wareneingaenge = [];
+let wareneingangStubs = [];
+
+const WE_PHASE_LABEL = {
+    produktion: 'in Produktion',
+    endbearbeitung: 'Endbearbeitung',
+    ausgeliefert: 'ausgeliefert',
+    archiv: 'archiviert',
+};
+
+async function fetchWareneingaenge() {
+    const tbody = document.getElementById('weTable');
+    if (tbody && !wareneingaenge.length) tbody.innerHTML = '<tr><td colspan="8" style="color:#94a3b8;">Wird geladen…</td></tr>';
+    try {
+        const res = await fetch(`${API_URL}/orders/wareneingaenge`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error();
+        wareneingaenge = await res.json();
+
+        // Platzhalter-Aufträge für die Foto-Lightbox: je Auftrag eine
+        // Komponentenliste, in der nur die geladenen Indizes besetzt sind.
+        const jeAuftrag = {};
+        wareneingaenge.forEach(z => {
+            const o = jeAuftrag[z.orderId] || (jeAuftrag[z.orderId] = { _id: z.orderId, phase: z.phase, komponenten: [] });
+            o.komponenten[z.index] = {
+                artikelnummer: z.komponenteArtikelnummer,
+                bezeichnung: z.komponenteBezeichnung,
+                charge: z.charge,
+                bild: z.bild,
+            };
+        });
+        wareneingangStubs = Object.values(jeAuftrag);
+        renderWareneingaenge();
+    } catch (err) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="color:#b91c1c;">Wareneingänge konnten nicht geladen werden. Bitte Seite neu laden.</td></tr>';
+    }
+}
+
+function wareneingaengeGefiltert() {
+    const suche = (document.getElementById('weSuche')?.value || '').trim().toLowerCase();
+    const bereich = document.getElementById('weBereich')?.value || '';
+    const von = document.getElementById('weVon')?.value;
+    const bis = document.getElementById('weBis')?.value;
+    const nurOhneFoto = document.getElementById('weNurOhneFoto')?.checked;
+
+    return wareneingaenge.filter(z => {
+        if (bereich && z.dbType !== bereich) return false;
+        if (nurOhneFoto && z.bild) return false;
+        // Datumsgrenzen als lokaler Tag, nicht als UTC-Zeitpunkt - sonst fällt
+        // ein Eingang vom Vormittag aus dem eigenen Tag heraus.
+        const tag = new Date(z.wareneingang);
+        if (von && tag < new Date(von + 'T00:00:00')) return false;
+        if (bis && tag > new Date(bis + 'T23:59:59')) return false;
+        if (!suche) return true;
+        return [z.auftragsnummer, z.artikelnummer, z.beschreibung, z.bestellnummer,
+            z.komponenteArtikelnummer, z.komponenteBezeichnung, z.charge]
+            .some(f => (f || '').toLowerCase().includes(suche));
+    });
+}
+
+function renderWareneingaenge() {
+    const tbody = document.getElementById('weTable');
+    if (!tbody) return;
+    const zeilen = wareneingaengeGefiltert();
+
+    tbody.innerHTML = zeilen.length ? zeilen.map(z => {
+        const komponente = [z.komponenteArtikelnummer, z.komponenteBezeichnung].filter(Boolean).join(' · ');
+        const foto = z.bild
+            ? `<button type="button" class="btn btn-secondary we-bild-btn" style="width:auto;padding:4px 10px;font-size:12px;" data-order="${z.orderId}" data-index="${z.index}" title="${escapeHtml(z.bild.filename || '')}">🖼️ ansehen</button>`
+            : '<span style="color:#b45309;">kein Foto</span>';
+        return `<tr>
+            <td style="white-space:nowrap;">${new Date(z.wareneingang).toLocaleDateString('de-DE')}</td>
+            <td>${escapeHtml(komponente) || '<span style="color:#94a3b8;">ohne Bezeichnung</span>'}</td>
+            <td>${z.charge ? escapeHtml(z.charge) : '<span style="color:#b45309;">keine Charge</span>'}</td>
+            <td>${foto}</td>
+            <td>${escapeHtml(z.auftragsnummer)}</td>
+            <td>${escapeHtml(z.artikelnummer)}${z.beschreibung ? `<div class="kosten-aufschluesselung">${escapeHtml(z.beschreibung)}</div>` : ''}</td>
+            <td>${z.dbType === 'Elastomer' ? 'Formgebung' : z.dbType === 'PTFE' ? 'CNC' : ''}</td>
+            <td>${WE_PHASE_LABEL[z.phase] || z.phase || ''}</td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="8" style="color:#94a3b8;">Keine Wareneingänge gefunden.</td></tr>';
+
+    tbody.querySelectorAll('.we-bild-btn').forEach(btn => {
+        btn.addEventListener('click', () => openKomponenteBildModal(btn.dataset.order, Number(btn.dataset.index)));
+    });
+
+    const stand = document.getElementById('weStand');
+    if (stand) {
+        const ohneCharge = zeilen.filter(z => !z.charge).length;
+        const ohneFoto = zeilen.filter(z => !z.bild).length;
+        const luecken = ohneCharge || ohneFoto;
+        stand.style.background = luecken ? '#fffbeb' : '#f0fdf4';
+        stand.style.borderColor = luecken ? '#fcd34d' : '#bbf7d0';
+        stand.style.color = luecken ? '#92400e' : '#15803d';
+        stand.innerHTML = `${zeilen.length} von ${wareneingaenge.length} Wareneingängen`
+            + (ohneCharge ? ` · <b>${ohneCharge} ohne Charge</b>` : '')
+            + (ohneFoto ? ` · <b>${ohneFoto} ohne Foto</b>` : '')
+            + (luecken ? '' : ' · alle mit Charge und Foto belegt');
+    }
+}
+
+function exportWareneingaengeExcel() {
+    const data = wareneingaengeGefiltert().map(z => ({
+        'Wareneingang': new Date(z.wareneingang).toLocaleDateString('de-DE'),
+        'Komponente Artikelnr.': z.komponenteArtikelnummer || '',
+        'Komponente': z.komponenteBezeichnung || '',
+        'Charge': z.charge || '',
+        'Foto': z.bild ? 'ja' : 'nein',
+        'Auftrag': z.auftragsnummer || '',
+        'Artikel': z.artikelnummer || '',
+        'Bezeichnung': z.beschreibung || '',
+        'Bestellung': z.bestellnummer || '',
+        'Bereich': z.dbType === 'Elastomer' ? 'Formgebung' : z.dbType === 'PTFE' ? 'CNC' : '',
+        'Status': WE_PHASE_LABEL[z.phase] || z.phase || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Wareneingänge');
+    XLSX.writeFile(wb, 'Wareneingaenge.xlsx');
+}
+
+['weSuche', 'weBereich', 'weVon', 'weBis', 'weNurOhneFoto'].forEach(id => {
+    const el = document.getElementById(id);
+    el?.addEventListener(el.tagName === 'SELECT' || el.type === 'date' || el.type === 'checkbox' ? 'change' : 'input', renderWareneingaenge);
+});
+document.getElementById('weExportBtn')?.addEventListener('click', exportWareneingaengeExcel);
 
 // --- Kostensätze (nur der Inhaber) ---
 // Maschinenstundensätze, Hilfsbetriebe und Lohnsätze. Jede Änderung wird
@@ -5174,8 +5309,13 @@ async function openKomponenteBildModal(orderId, idx) {
     document.getElementById('komponenteBildTitel').textContent = `Foto Wareneingang · ${label}`;
     document.getElementById('komponenteBildSub').textContent = 'Wird geladen...';
     document.getElementById('komponenteBildBox').innerHTML = '';
-    // Im Archiv ist der Auftrag abgeschlossen - Fotos dort nur ansehen, nicht löschen.
-    document.getElementById('komponenteBildRemoveBtn').classList.toggle('hidden', order.phase === 'archiv');
+    // Im Archiv ist der Auftrag abgeschlossen - Fotos dort nur ansehen, nicht
+    // löschen. Dasselbe gilt für die Wareneingangsliste: sie dokumentiert, sie
+    // verwaltet nicht (erkennbar daran, dass der Auftrag nicht aus dem Board
+    // stammt). Ein Foto ist der einzige Nachweis der Charge - es verschwindet
+    // nur dort, wo der Auftrag auch wirklich bearbeitet wird.
+    const ausDemBoard = boardOrders.some(o => o._id === orderId);
+    document.getElementById('komponenteBildRemoveBtn').classList.toggle('hidden', order.phase === 'archiv' || !ausDemBoard);
     document.getElementById('komponenteBildModal').classList.remove('hidden');
 
     try {
@@ -5599,7 +5739,12 @@ async function archivZurueckholen(orderId) {
 // Auftrag aus Board ODER Archiv - das Foto-Fenster und die Detailansicht
 // müssen beide Quellen kennen.
 function findeAuftrag(orderId) {
-    return boardOrders.find(o => o._id === orderId) || archivOrders.find(o => o._id === orderId);
+    return boardOrders.find(o => o._id === orderId)
+        || archivOrders.find(o => o._id === orderId)
+        // Die Wareneingangsliste lädt bewusst nicht die ganzen Aufträge, nur
+        // die Zeilen. Für die Foto-Lightbox reicht ein Platzhalter mit der
+        // Komponente an der richtigen Stelle.
+        || wareneingangStubs.find(o => o._id === orderId);
 }
 
 function openArchivDetail(orderId) {
