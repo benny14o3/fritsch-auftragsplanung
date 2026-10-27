@@ -33,6 +33,11 @@ const arbeitsgangSchema = new mongoose.Schema({
   // Maschinenstundensatz mit - beim Aufheizen steht die Spritzmaschine still
   // und verdient nichts, kostet aber.
   maschinengebunden: { type: Boolean, default: true },
+  // Formgebung oder CNC? Ein Elastomer-Artikel wird nie gedreht, ein
+  // PTFE-Drehteil nie kryogen entgratet - die Oberfläche zeigt beim Artikel
+  // deshalb nur die Schritte seines Bereichs. 'beide' gilt überall
+  // (Sichtkontrolle, Verpacken, Waschen).
+  bereich: { type: String, enum: ['formgebung', 'cnc', 'beide'], default: 'beide' },
   bemerkung: { type: String, default: '' },
   reihenfolge: { type: Number, default: 0 },
   aktiv: { type: Boolean, default: true },

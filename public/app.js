@@ -1581,7 +1581,16 @@ function renderArticleDetailArbeitsgaenge() {
         return;
     }
 
-    box.innerHTML = arbeitsgangKatalog.filter(g => g.aktiv !== false).map(g => {
+    // Nur die Schritte des eigenen Bereichs: ein Elastomer-Artikel wird nicht
+    // gedreht, ein PTFE-Drehteil nicht kryogen entgratet. Schritte, die ein
+    // Artikel wider Erwarten doch hinterlegt hat, bleiben sichtbar - sonst
+    // verschwände eine gepflegte Zeit lautlos aus dem Plan.
+    const artikel = (artikelstamm?.artikel || []).find(a => a.material === articleDetailMaterial);
+    const bereich = artikel?.dbType === 'PTFE' ? 'cnc' : artikel?.dbType === 'Elastomer' ? 'formgebung' : null;
+    const passtZumBereich = g => !bereich || !g.bereich || g.bereich === 'beide' || g.bereich === bereich
+        || articleDetailArbeitsgaenge.some(a => a.schluessel === g.schluessel);
+
+    box.innerHTML = arbeitsgangKatalog.filter(g => g.aktiv !== false).filter(passtZumBereich).map(g => {
         const gewaehlt = articleDetailArbeitsgaenge.find(a => a.schluessel === g.schluessel);
         const feld = (titel, name, wert, vorgabe, einheit) => `
             <label>${titel}
@@ -1649,8 +1658,13 @@ function renderArticleDetailArbeitsgaenge() {
 function fuelleArbeitsplanVorlagen() {
     const select = document.getElementById('articleDetailPlanVorlage');
     if (!select) return;
+    // Vorlage nur aus demselben Bereich - ein Spritzguss-Plan passt nicht auf
+    // ein Drehteil und würde nur Schritte einschleppen, die dort nichts zu
+    // suchen haben.
+    const eigener = (artikelstamm?.artikel || []).find(a => a.material === articleDetailMaterial)?.dbType;
     const vorlagen = (artikelstamm?.artikel || [])
         .filter(a => (a.arbeitsgaenge || []).length > 0 && a.material !== articleDetailMaterial)
+        .filter(a => !eigener || !a.dbType || a.dbType === eigener)
         .sort((a, b) => String(a.material).localeCompare(String(b.material)));
     select.innerHTML = vorlagen.length
         ? `<option value="">– Artikel wählen –</option>` + vorlagen.map(a =>

@@ -9,30 +9,54 @@ const router = express.Router();
 // Beim ersten Aufruf mit den Schritten befüllen, die bei Fritsch tatsächlich
 // vorkommen - die Werte sind Platzhalter und werden in der Oberfläche gepflegt.
 const GRUNDKATALOG = [
-  { schluessel: 'ruesten_personell', name: 'Rüsten (personell)', abrechnung: 'auftrag', reihenfolge: 10,
-    rolle: 'einrichter', personalanteilProzent: 100, maschinengebunden: true,
+  // --- Formgebung ---
+  { schluessel: 'ruesten_personell', name: 'Rüsten Formgebung (personell)', abrechnung: 'auftrag', reihenfolge: 10,
+    rolle: 'einrichter', personalanteilProzent: 100, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Werkzeug aus- und einbauen, anschließen - Einrichter gebunden, Maschine steht' },
   { schluessel: 'aufheizen', name: 'Aufheizen Werkzeug/Maschine', abrechnung: 'auftrag', reihenfolge: 20,
-    rolle: 'keine', personalanteilProzent: 0, maschinengebunden: true,
+    rolle: 'keine', personalanteilProzent: 0, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Maschine heizt allein hoch - kostet Maschinenzeit und Energie, aber kein Personal' },
   { schluessel: 'formgebung', name: 'Formgebung (Spritzen)', abrechnung: 'stueck', reihenfolge: 30,
-    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Zeit kommt aus Kavität und Zeit pro 100 im Artikelstamm; Personalanteil = 100 / bediente Maschinen' },
   { schluessel: 'entgraten_kryo', name: 'Kryogenes Entgraten', abrechnung: 'charge', reihenfolge: 40,
-    rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true,
+    rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Personal nur zum Be- und Entladen' },
   { schluessel: 'nachheizen', name: 'Nachheizen / Tempern', abrechnung: 'charge', reihenfolge: 50,
-    rolle: 'keine', personalanteilProzent: 10, maschinengebunden: true,
+    rolle: 'keine', personalanteilProzent: 10, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Ofen läuft allein, Personal nur zum Beschicken' },
-  { schluessel: 'waschen', name: 'Waschen', abrechnung: 'charge', reihenfolge: 60,
-    rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true },
   { schluessel: 'stechen', name: 'Stechen', abrechnung: 'stueck', reihenfolge: 70,
-    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true },
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'formgebung' },
+
+  // --- CNC ---
+  { schluessel: 'programmieren', name: 'CNC-Programm erstellen', abrechnung: 'auftrag', reihenfolge: 11,
+    rolle: 'einrichter', personalanteilProzent: 100, maschinengebunden: false, bereich: 'cnc',
+    bemerkung: 'Nur bei neuen Teilen oder Änderungen - am Rechner, die Maschine läuft weiter' },
+  { schluessel: 'ruesten_cnc', name: 'Rüsten CNC (Spannmittel/Werkzeuge)', abrechnung: 'auftrag', reihenfolge: 12,
+    rolle: 'einrichter', personalanteilProzent: 100, maschinengebunden: true, bereich: 'cnc',
+    bemerkung: 'Backen und Werkzeuge wechseln, Nullpunkt setzen, Programm einfahren - Maschine steht' },
+  { schluessel: 'saegen', name: 'Sägen / Zuschnitt', abrechnung: 'stueck', reihenfolge: 25,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'cnc',
+    bemerkung: 'Rundstab oder Platte auf Rohteillänge - das Zuschnittgewicht zählt beim Material, nicht das Fertigteil' },
+  { schluessel: 'drehen', name: 'Drehen (CNC)', abrechnung: 'stueck', reihenfolge: 31,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'cnc',
+    bemerkung: 'Hauptzeit je Teil. Bei Stangenlader oder Mehrmaschinenbedienung den Personalanteil senken - die Maschine läuft, der Bediener nicht nur hier' },
+  { schluessel: 'fraesen', name: 'Fräsen (CNC/Portal)', abrechnung: 'stueck', reihenfolge: 32,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'cnc' },
+  { schluessel: 'lasern', name: 'Lasern / Beschriften', abrechnung: 'stueck', reihenfolge: 33,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'cnc' },
+
+  // --- beide Bereiche ---
+  { schluessel: 'entgraten_manuell', name: 'Entgraten manuell', abrechnung: 'stueck', reihenfolge: 46,
+    rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: false, bereich: 'beide',
+    bemerkung: 'Reine Handarbeit ohne Anlage' },
+  { schluessel: 'waschen', name: 'Waschen', abrechnung: 'charge', reihenfolge: 60,
+    rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true, bereich: 'beide' },
   { schluessel: 'sichtkontrolle', name: 'Sichtkontrolle 100 %', abrechnung: 'stueck', reihenfolge: 80,
-    rolle: 'kontrolle', personalanteilProzent: 100, maschinengebunden: false,
+    rolle: 'kontrolle', personalanteilProzent: 100, maschinengebunden: false, bereich: 'beide',
     bemerkung: 'Fällt bei jedem Artikel an - reine Personalzeit' },
   { schluessel: 'verpacken', name: 'Verpacken', abrechnung: 'stueck', reihenfolge: 90,
-    rolle: 'kontrolle', personalanteilProzent: 100, maschinengebunden: false },
+    rolle: 'kontrolle', personalanteilProzent: 100, maschinengebunden: false, bereich: 'beide' },
 ];
 
 async function katalog() {
@@ -68,7 +92,7 @@ router.patch('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const erlaubt = ['name', 'abrechnung', 'standardzeitSek', 'standardChargengroesse',
       'standardChargenzeitMin', 'standardRuestzeitMin', 'bemerkung', 'reihenfolge', 'aktiv',
-      'rolle', 'personalanteilProzent', 'maschinengebunden'];
+      'rolle', 'personalanteilProzent', 'maschinengebunden', 'bereich'];
     const aenderung = {};
     erlaubt.forEach(f => { if (req.body[f] !== undefined) aenderung[f] = req.body[f]; });
     const doc = await Arbeitsgang.findByIdAndUpdate(req.params.id, aenderung, { new: true });
