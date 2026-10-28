@@ -5929,6 +5929,9 @@ function exportPlannerExcel(dbType) {
             'Maschine 2': MASCHINEN.find(m => m.id === r.maschineId2)?.name || '',
             'Start': r.startDatum ? new Date(r.startDatum).toLocaleDateString('de-DE') : '',
             'Ende': r.endDatum ? new Date(r.endDatum).toLocaleDateString('de-DE') : '',
+            // Direkt neben dem geplanten Ende, damit sofort sichtbar ist, ob der
+            // Plan den Kundentermin hält.
+            'Liefertermin laut Bestellung': r.lieferdatum ? new Date(r.lieferdatum).toLocaleDateString('de-DE') : '',
             'Zeit (h)': (r.bearbeitungsMin / 60).toFixed(1),
             'Schichten': r.schichten,
             'Status': r.status,
