@@ -1,6 +1,7 @@
 const express = require('express');
 const Artikelstamm = require('../models/Artikelstamm');
 const ArtikelDatei = require('../models/ArtikelDatei');
+const Order = require('../models/Order');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
 
@@ -10,6 +11,33 @@ async function getOrCreateDoc() {
   let doc = await Artikelstamm.findOne();
   if (!doc) doc = new Artikelstamm({ artikel: [] });
   return doc;
+}
+
+// Die Beschreibung auf einem Auftrag ist eine Kopie der Artikelbezeichnung,
+// die nur beim Anlegen gesetzt wird (siehe public/app.js). Ohne Abgleich
+// steht auf bestehenden Auftraegen weiter die Bezeichnung von damals - oder
+// gar keine, wenn der Artikel erst nach dem Import gepflegt wurde.
+//
+// Angefasst wird nur, was leer ist oder noch wortgleich der alten Bezeichnung
+// entspricht: in manche Auftraege sind von Hand Hinweise eingetragen ("Rest-
+// kuchen mitliefern", "neu kalkulieren!"), die nicht verloren gehen duerfen.
+// Archivierte Auftraege bleiben als Beweisablage unberuehrt.
+async function bezeichnungNachziehen(aenderungen) {
+  const relevant = aenderungen.filter(a => a.material && (a.neu || '') !== (a.alt || ''));
+  if (relevant.length === 0) return 0;
+  const ops = relevant.map(({ material, alt, neu }) => ({
+    updateMany: {
+      filter: {
+        artikelnummer: String(material),
+        phase: { $ne: 'archiv' },
+        $or: [{ beschreibung: '' }, { beschreibung: null }, { beschreibung: { $exists: false } },
+          { beschreibung: alt || '' }],
+      },
+      update: { $set: { beschreibung: neu || '' } },
+    },
+  }));
+  const ergebnis = await Order.bulkWrite(ops);
+  return ergebnis.modifiedCount || 0;
 }
 
 // Zeichnung/Einstelldatenblatt liegen in einer eigenen Collection. Damit die
@@ -106,12 +134,14 @@ router.post('/upload/stueckliste', authMiddleware, adminMiddleware, async (req, 
     const { materialien } = req.body;
     const doc = await getOrCreateDoc();
 
+    const umbenannt = [];
     materialien.forEach(row => {
       let entry = doc.artikel.find(a => a.material === row.material);
       if (!entry) {
         doc.artikel.push({ material: row.material, dbType: null, maschine: '', kavitaet: 0, rundenProSchicht: 0, zeitProHundert: 0 });
         entry = doc.artikel[doc.artikel.length - 1];
       }
+      umbenannt.push({ material: row.material, alt: entry.bezeichnung, neu: row.bezeichnung || '' });
       entry.bezeichnung = row.bezeichnung || '';
       entry.komponenten = row.komponenten || [];
     });
@@ -119,6 +149,7 @@ router.post('/upload/stueckliste', authMiddleware, adminMiddleware, async (req, 
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
+    await bezeichnungNachziehen(umbenannt);
     await antwortMitDoc(res, doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -166,6 +197,7 @@ router.post('/materialien', authMiddleware, adminMiddleware, async (req, res) =>
       doc.artikel.push({ material, komponenten: [] });
       entry = doc.artikel[doc.artikel.length - 1];
     }
+    const bezeichnungVorher = entry.bezeichnung;
     if (bezeichnung !== undefined) entry.bezeichnung = bezeichnung;
     if (dbType !== undefined) entry.dbType = dbType;
     if (maschine !== undefined) entry.maschine = maschine;
@@ -189,6 +221,7 @@ router.post('/materialien', authMiddleware, adminMiddleware, async (req, res) =>
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
+    await bezeichnungNachziehen([{ material: entry.material, alt: bezeichnungVorher, neu: entry.bezeichnung }]);
     const saved = doc.artikel.find(a => a.material === material);
     res.status(201).json(await mitDateiMetadaten(saved.toObject()));
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -208,6 +241,7 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
       }
       entry.material = material;
     }
+    const bezeichnungVorher = entry.bezeichnung;
     if (bezeichnung !== undefined) entry.bezeichnung = bezeichnung;
     if (dbType !== undefined) entry.dbType = dbType;
     if (maschine !== undefined) entry.maschine = maschine;
@@ -236,6 +270,7 @@ router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (r
     doc.updatedBy = req.userId;
     doc.lastUpdated = new Date();
     await doc.save();
+    await bezeichnungNachziehen([{ material: entry.material, alt: bezeichnungVorher, neu: entry.bezeichnung }]);
     res.json(await mitDateiMetadaten(entry.toObject()));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
