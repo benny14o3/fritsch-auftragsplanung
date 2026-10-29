@@ -11,9 +11,11 @@ const router = express.Router();
 const GRUNDKATALOG = [
   // --- Formgebung ---
   { schluessel: 'ruesten_personell', name: 'Rüsten Formgebung (personell)', abrechnung: 'auftrag', reihenfolge: 10,
+    standardRuestzeitMin: 45,
     rolle: 'einrichter', personalanteilProzent: 100, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Werkzeug aus- und einbauen, anschließen - Einrichter gebunden, Maschine steht' },
   { schluessel: 'aufheizen', name: 'Aufheizen Werkzeug/Maschine', abrechnung: 'auftrag', reihenfolge: 20,
+    standardRuestzeitMin: 120,
     rolle: 'keine', personalanteilProzent: 0, maschinengebunden: true, bereich: 'formgebung',
     bemerkung: 'Maschine heizt allein hoch - kostet Maschinenzeit und Energie, aber kein Personal' },
   { schluessel: 'formgebung', name: 'Formgebung (Spritzen)', abrechnung: 'stueck', reihenfolge: 30,
@@ -21,10 +23,10 @@ const GRUNDKATALOG = [
     bemerkung: 'Zeit kommt aus Kavität und Zeit pro 100 im Artikelstamm; Personalanteil = 100 / bediente Maschinen' },
   { schluessel: 'entgraten_kryo', name: 'Kryogenes Entgraten', abrechnung: 'charge', reihenfolge: 40,
     rolle: 'maschinenbediener', personalanteilProzent: 20, maschinengebunden: true, bereich: 'formgebung',
-    bemerkung: 'Personal nur zum Be- und Entladen' },
+    bemerkung: 'Personal nur zum Be- und Entladen - Zeit je Durchgang, Durchsatz über die Chargengröße' },
   { schluessel: 'nachheizen', name: 'Nachheizen / Tempern', abrechnung: 'charge', reihenfolge: 50,
-    rolle: 'keine', personalanteilProzent: 10, maschinengebunden: true, bereich: 'formgebung',
-    bemerkung: 'Ofen läuft allein, Personal nur zum Beschicken' },
+    rolle: 'maschinenbediener', personalanteilProzent: 10, maschinengebunden: true, bereich: 'formgebung',
+    bemerkung: 'Ofen läuft allein, Personal nur zum Beschicken - Zeit je Durchgang, Durchsatz über die Chargengröße' },
   { schluessel: 'stechen', name: 'Stechen', abrechnung: 'stueck', reihenfolge: 70,
     rolle: 'maschinenbediener', personalanteilProzent: 100, maschinengebunden: true, bereich: 'formgebung' },
 
