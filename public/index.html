@@ -1204,6 +1204,15 @@
                 <select id="articleDetailPlanVorlage" class="table-input" style="width: auto; max-width: 260px;"></select>
                 <button class="btn btn-secondary" id="articleDetailPlanUebernehmenBtn" style="width: auto;">Übernehmen</button>
             </div>
+            <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2e8f0;">
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="articleDetailPlanVerteilenBtn" style="width: auto;">Diesen Plan auf alle Artikel ohne Plan übertragen</button>
+                    <label style="font-size: 13px; color: #475569; display: flex; align-items: center; gap: 6px;">
+                        <input type="checkbox" id="articleDetailPlanZeiten" checked style="width: auto;"> Zeiten mitnehmen
+                    </label>
+                </div>
+                <p class="modal-sub" style="margin-top: 8px;">Überträgt die gespeicherte Schrittfolge dieses Artikels auf alle Artikel desselben Bereichs, die noch keinen Arbeitsplan haben. Bereits gepflegte Pläne bleiben unangetastet. Die Zeiten hängen an der Teilegröße – als Startwert brauchbar, je Artikel aber zu prüfen.</p>
+            </div>
         </div>
 
         <div class="modal-section">

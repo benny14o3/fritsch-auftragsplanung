@@ -1684,6 +1684,61 @@ document.getElementById('articleDetailPlanUebernehmenBtn')?.addEventListener('cl
     note.textContent = `Arbeitsplan von ${material} übernommen - noch nicht gespeichert.`;
 });
 
+// Einen fertig gepflegten Plan auf den Rest des Bereichs ausrollen. Gerechnet
+// wird serverseitig auf dem GESPEICHERTEN Stand - was gerade nur im Formular
+// steht, ist noch nicht uebertragbar, deshalb der Hinweis im Dialog.
+document.getElementById('articleDetailPlanVerteilenBtn')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const note = document.getElementById('articleDetailNote');
+    const artikel = (artikelstamm?.artikel || []).find(a => a.material === articleDetailMaterial);
+    const gespeichert = (artikel?.arbeitsgaenge || []).length;
+    if (!artikel?.dbType) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Diesem Artikel fehlt der Bereich (Elastomer/PTFE) - ohne ihn ist nicht klar, auf welche Artikel der Plan passt.';
+        return;
+    }
+    if (gespeichert === 0) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Für diesen Artikel ist noch kein Arbeitsplan gespeichert - erst anhaken und speichern, dann übertragen.';
+        return;
+    }
+    const ziele = (artikelstamm.artikel || []).filter(a => a.dbType === artikel.dbType
+        && a.material !== artikel.material && (a.arbeitsgaenge || []).length === 0).length;
+    const bereich = artikel.dbType === 'Elastomer' ? 'Formgebung' : 'CNC';
+    if (ziele === 0) {
+        note.style.color = '#475569';
+        note.textContent = `Alle Artikel der ${bereich} haben bereits einen Arbeitsplan.`;
+        return;
+    }
+    const zeiten = document.getElementById('articleDetailPlanZeiten').checked;
+    const frage = `Den gespeicherten Arbeitsplan von ${artikel.material} (${gespeichert} Schritte${zeiten ? ' samt Zeiten' : ', ohne Zeiten'}) auf ${ziele} Artikel der ${bereich} übertragen, die noch keinen Plan haben?\n\nBereits gepflegte Pläne bleiben unverändert.`;
+    if (!confirm(frage)) return;
+
+    btn.disabled = true;
+    try {
+        const res = await fetch(`${API_URL}/artikelstamm/arbeitsplan-uebertragen`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quelle: artikel.material, zeitenUebernehmen: zeiten }),
+        });
+        const daten = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            note.style.color = '#b91c1c';
+            note.textContent = daten.error || 'Der Arbeitsplan konnte nicht übertragen werden.';
+            return;
+        }
+        await loadArtikelstamm();
+        fuelleArbeitsplanVorlagen();
+        note.style.color = '#15803d';
+        note.textContent = `Auf ${daten.uebertragen} Artikel übertragen - ${daten.mitPlan} von ${daten.imBereich} im Bereich ${bereich} haben jetzt einen Arbeitsplan.`;
+    } catch (err) {
+        note.style.color = '#b91c1c';
+        note.textContent = 'Keine Verbindung - es wurde nichts übertragen.';
+    } finally {
+        btn.disabled = false;
+    }
+});
+
 function renderArticleDetailWerkzeug() {
     const box = document.getElementById('articleDetailWerkzeug');
     if (!box) return;

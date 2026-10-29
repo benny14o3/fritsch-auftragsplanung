@@ -227,6 +227,55 @@ router.post('/materialien', authMiddleware, adminMiddleware, async (req, res) =>
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Einen gepflegten Arbeitsplan auf alle Artikel desselben Bereichs übertragen,
+// die noch keinen haben. Die meisten Artikel laufen gleich durch - ohne das
+// hier müsste jeder der über 700 Artikel von Hand angehakt werden, und ohne
+// Arbeitsplan bleibt sowohl die Kalkulation als auch die Arbeitsfolge im
+// Shopfloor leer.
+//
+// Bestehende Pläne werden nie angefasst: wer schon gepflegt hat, hat sich
+// etwas dabei gedacht. Übertragen wird nur innerhalb desselben dbType - ein
+// Spritzguss-Plan auf einem Drehteil wäre schlicht falsch.
+router.post('/arbeitsplan-uebertragen', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { quelle, zeitenUebernehmen } = req.body;
+    if (!quelle) return res.status(400).json({ error: 'Vorlage-Artikel fehlt' });
+
+    const doc = await getOrCreateDoc();
+    const vorlage = doc.artikel.find(a => a.material === quelle);
+    if (!vorlage) return res.status(404).json({ error: `Artikel ${quelle} nicht gefunden` });
+    const plan = vorlage.arbeitsgaenge || [];
+    if (plan.length === 0) return res.status(400).json({ error: `${quelle} hat selbst keinen Arbeitsplan` });
+    if (!vorlage.dbType) return res.status(400).json({ error: `${quelle} hat keinen Bereich (Elastomer/PTFE) - ohne den ist nicht klar, auf welche Artikel der Plan passt` });
+
+    // Ohne Zeiten nur die Schrittfolge - die Zeiten haengen an der Teilegroesse
+    // und waeren anderswo frei erfunden.
+    const schritte = plan.map(g => (zeitenUebernehmen
+      ? { schluessel: g.schluessel, zeitSek: g.zeitSek, chargengroesse: g.chargengroesse,
+          chargenzeitMin: g.chargenzeitMin, ruestzeitMin: g.ruestzeitMin, bemerkung: g.bemerkung }
+      : { schluessel: g.schluessel }));
+
+    const ziele = doc.artikel.filter(a => a.dbType === vorlage.dbType
+      && a.material !== vorlage.material
+      && (a.arbeitsgaenge || []).length === 0);
+    ziele.forEach(a => { a.arbeitsgaenge = schritte.map(x => ({ ...x })); });
+
+    const mitPlan = doc.artikel.filter(a => a.dbType === vorlage.dbType && (a.arbeitsgaenge || []).length > 0).length;
+    doc.updatedBy = req.userId;
+    doc.lastUpdated = new Date();
+    await doc.save();
+
+    res.json({
+      uebertragen: ziele.length,
+      schritte: schritte.length,
+      dbType: vorlage.dbType,
+      zeiten: !!zeitenUebernehmen,
+      mitPlan,
+      imBereich: doc.artikel.filter(a => a.dbType === vorlage.dbType).length,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Einzelnen Artikel bearbeiten.
 router.patch('/materialien/:material', authMiddleware, adminMiddleware, async (req, res) => {
   try {
