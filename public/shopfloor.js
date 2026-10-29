@@ -717,11 +717,51 @@ async function fetchDetail(orderId) {
     } catch (err) { /* stiller Retry beim nächsten Poll */ }
 }
 
+// Hinweise, die für jeden Auftrag eines Bereichs gelten - nicht je Auftrag
+// gepflegt, sondern hier einmal hinterlegt. Als Kommentar auf dem Auftrag wäre
+// derselbe Satz in jedem Datensatz kopiert, müsste bei jedem Import neu gesetzt
+// werden und ginge beim nächsten Bearbeiten des Kommentars verloren. Ein
+// weiterer Hinweis kommt einfach als neuer Eintrag dazu.
+const BEREICHS_HINWEISE = {
+    Elastomer: [
+        { text: 'Restkuchen mitliefern', sub: 'Gilt für jeden Formgebungsauftrag – nicht wegwerfen.' },
+    ],
+    PTFE: [],
+};
+
+function renderBereichsHinweise(order) {
+    const box = document.getElementById('bereichsHinweise');
+    if (!box) return;
+    const hinweise = BEREICHS_HINWEISE[order.dbType] || [];
+    // Die Texte stehen als Konstanten oben in dieser Datei, kommen also nicht
+    // aus der Datenbank - deshalb genuegt textContent statt eines Escapings.
+    box.innerHTML = '';
+    hinweise.forEach(h => {
+        const el = document.createElement('div');
+        el.className = 'bereichs-hinweis';
+        const icon = document.createElement('div');
+        icon.className = 'bh-icon';
+        icon.textContent = '⚠️';
+        const text = document.createElement('div');
+        text.className = 'bh-text';
+        text.textContent = h.text;
+        if (h.sub) {
+            const sub = document.createElement('div');
+            sub.className = 'bh-sub';
+            sub.textContent = h.sub;
+            text.appendChild(sub);
+        }
+        el.append(icon, text);
+        box.appendChild(el);
+    });
+}
+
 function renderDetail() {
     const { order, zeichnung, einstelldatenblatt, qpa, plp, erstfreigabeErforderlich, erstfreigabeOffen } = currentDetail;
     document.getElementById('detailTitle').textContent = `${order.artikelnummer || '–'} · ${order.auftragsnummer || ''}`;
     document.getElementById('detailSub').textContent = `${order.beschreibung || ''} · Menge ${order.menge || '–'}`;
 
+    renderBereichsHinweise(order);
     renderDateiPreview('zeichnungBox', order.artikelnummer, 'zeichnung', zeichnung, 'Keine Zeichnung hinterlegt.');
     // Einstelldatenblatt gibt es nur für Formgebung (Elastomer) - Karte bei CNC ausblenden.
     const einstelldatenblattCard = document.getElementById('einstelldatenblattCard');
