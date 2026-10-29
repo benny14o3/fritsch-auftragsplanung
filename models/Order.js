@@ -59,6 +59,29 @@ const laufzettelEintragSchema = new mongoose.Schema({
   zeitpunkt: { type: Date, default: null },
 }, { _id: false });
 
+// Ein Schritt aus dem Arbeitsplan des Artikels (artikel.arbeitsgaenge), hier
+// mit dem tatsächlichen Verlauf: wer hat wann begonnen, wer wann fertig
+// gemeldet. Erst damit ist beantwortbar, wo ein Auftrag physisch steht - der
+// Laufzettel oben führt nur die Prüfschritte aus dem PLP, nicht die Arbeit.
+//
+// name/reihenfolge sind Schnappschüsse aus dem Katalog (models/Arbeitsgang.js),
+// damit ein später umbenannter oder gelöschter Arbeitsgang die Historie des
+// Auftrags nicht verändert.
+const arbeitsschrittSchema = new mongoose.Schema({
+  schluessel: { type: String, required: true },
+  name: { type: String, required: true },
+  reihenfolge: { type: Number, default: 0 },
+  status: { type: String, enum: ['offen', 'laeuft', 'fertig'], default: 'offen' },
+  startZeitpunkt: { type: Date, default: null },
+  startKuerzel: { type: String, default: null },
+  endZeitpunkt: { type: Date, default: null },
+  endKuerzel: { type: String, default: null },
+  // Gemessene Dauer in Minuten (Ende minus Start). Steht nur dort, wo beide
+  // Zeitpunkte erfasst sind - wer "fertig" ohne vorheriges "Start" meldet,
+  // liefert keine Zeit, aber den Fortschritt.
+  minutenIst: { type: Number, default: null },
+}, { _id: false });
+
 // Eine Prüfung zu einem Maßprüfungs- oder i.O./n.i.O.-Prüfpunkt (typ:
 // 'masspruefung' bzw. 'iopruefung') - Log statt Einzelwert, damit mehrere
 // Prüfungen je Schicht/Auftrag dokumentiert werden können (Fehlersammelkarte).
@@ -190,6 +213,8 @@ const orderSchema = new mongoose.Schema({
   // GET /shopfloor/orders/aktuell und POST /shopfloor/orders/:orderId/produktion.
   produktion: [produktionsEintragSchema],
   laufzettel: [laufzettelEintragSchema],
+  // Ist-Verlauf des Arbeitsplans - siehe arbeitsschrittSchema.
+  arbeitsschritte: [arbeitsschrittSchema],
   massungen: [massungSchema],
   erstfreigabe: { type: erstfreigabeSchema, default: () => ({ erteilt: false, messungen: [] }) },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

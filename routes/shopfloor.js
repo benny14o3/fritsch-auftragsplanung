@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Order = require('../models/Order');
 const Artikelstamm = require('../models/Artikelstamm');
 const ArtikelDatei = require('../models/ArtikelDatei');
+const Arbeitsgang = require('../models/Arbeitsgang');
 const ShopfloorUser = require('../models/ShopfloorUser');
 const authMiddleware = require('../middleware/auth');
 const adminMiddleware = require('../middleware/admin');
@@ -28,6 +29,41 @@ function ensureLaufzettel(order, artikel) {
   order.laufzettel = prozessPunkte.map(p => ({
     pruefpunktId: p._id, bezeichnung: p.bezeichnung, erledigt: false, kuerzel: null, zeitpunkt: null,
   }));
+}
+
+// Arbeitsfolge: ein Eintrag je Schritt aus dem Arbeitsplan des Artikels. Name
+// und Reihenfolge stehen nicht am Artikel, sondern im Katalog - der Artikel
+// hinterlegt nur Schlüssel und Zeiten (siehe models/Artikelstamm.js).
+//
+// Neu hinzugekommene Schritte werden ergänzt, bereits erfasster Fortschritt
+// bleibt stehen. Schritte, die aus dem Arbeitsplan verschwinden, bleiben
+// ebenfalls erhalten, wenn an ihnen schon gearbeitet wurde: was gelaufen ist,
+// ist gelaufen. Wird NICHT zugeschnitten, solange der Katalog nicht geladen
+// werden konnte - sonst stünde der Auftrag ohne Arbeitsfolge da.
+async function ensureArbeitsschritte(order, artikel) {
+  const geplant = artikel?.arbeitsgaenge || [];
+  if (geplant.length === 0) return;
+  const katalog = await Arbeitsgang.find({ schluessel: { $in: geplant.map(g => g.schluessel) } })
+    .select('schluessel name reihenfolge').lean();
+  if (katalog.length === 0) return;
+  const kat = new Map(katalog.map(k => [k.schluessel, k]));
+  const vorhanden = new Map((order.arbeitsschritte || []).map(s => [s.schluessel, s]));
+
+  geplant.forEach(g => {
+    if (vorhanden.has(g.schluessel)) return;
+    const k = kat.get(g.schluessel);
+    if (!k) return;   // Schlüssel ohne Katalogeintrag - nichts zu benennen
+    order.arbeitsschritte.push({
+      schluessel: k.schluessel, name: k.name, reihenfolge: k.reihenfolge ?? 0, status: 'offen',
+    });
+  });
+
+  // Aus dem Arbeitsplan entfernte Schritte, an denen noch nichts passiert ist,
+  // verschwinden auch hier - sonst sammelt die Liste Altlasten an.
+  const geplanteSchluessel = new Set(geplant.map(g => g.schluessel));
+  order.arbeitsschritte = order.arbeitsschritte.filter(
+    s => geplanteSchluessel.has(s.schluessel) || s.status !== 'offen');
+  order.arbeitsschritte.sort((a, b) => (a.reihenfolge - b.reihenfolge) || a.name.localeCompare(b.name));
 }
 
 // Erstfreigabe ist nur nötig, wenn der Artikel überhaupt Prüfpunkte hat - ohne
@@ -112,7 +148,7 @@ router.get('/maschinen', shopfloorAuthMiddleware, (req, res) => res.json(MASCHIN
 router.get('/orders', shopfloorAuthMiddleware, async (req, res) => {
   try {
     const orders = await Order.find({ phase: { $in: ['produktion', 'endbearbeitung'] } })
-      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge dbType maschineId maschineId2 startDatum endDatum status phase laufzettel erstfreigabe komponenten produktion manuellEingeplant')
+      .select('auftragsnummer artikelnummer beschreibung menge gesamtmenge dbType maschineId maschineId2 startDatum endDatum status phase laufzettel arbeitsschritte erstfreigabe komponenten produktion manuellEingeplant')
       .sort({ position: 1 });
     res.json(orders);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -255,6 +291,7 @@ router.get('/orders/:orderId', shopfloorAuthMiddleware, async (req, res) => {
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     const artikel = await getArtikelFuerOrder(order);
     ensureLaufzettel(order, artikel);
+    await ensureArbeitsschritte(order, artikel);
     if (order.isModified()) await order.save();
 
     // Nur die Metadaten der Dateien - diese Route wird alle 8 Sekunden
@@ -369,6 +406,59 @@ router.patch('/orders/:orderId/laufzettel/:pruefpunktId', shopfloorAuthMiddlewar
 
     await order.save();
     res.json(order.laufzettel);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Arbeitsschritt starten, fertig melden oder zurücknehmen.
+//
+// Bewusst ohne Reihenfolgezwang: in der Halle laufen Schritte auch mal
+// parallel oder in anderer Folge (zweite Maschine, Teilmenge vorgezogen), und
+// eine Sperre würde nur dazu führen, dass gar nichts gemeldet wird. Die
+// Erstfreigabe sperrt hier ebenfalls nicht - um sie zu erteilen, muss erst
+// produziert werden.
+router.patch('/orders/:orderId/arbeitsschritte/:schluessel', shopfloorAuthMiddleware, async (req, res) => {
+  try {
+    const { aktion } = req.body;
+    if (!['start', 'fertig', 'zuruecknehmen'].includes(aktion)) {
+      return res.status(400).json({ error: 'Unbekannte Aktion' });
+    }
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const artikel = await getArtikelFuerOrder(order);
+    await ensureArbeitsschritte(order, artikel);
+    const schritt = (order.arbeitsschritte || []).find(s => s.schluessel === req.params.schluessel);
+    if (!schritt) return res.status(404).json({ error: 'Arbeitsschritt nicht im Arbeitsplan dieses Artikels' });
+
+    const jetzt = new Date();
+    if (aktion === 'start') {
+      if (schritt.status === 'laeuft') return res.status(409).json({ error: `${schritt.name} läuft schon` });
+      schritt.status = 'laeuft';
+      schritt.startZeitpunkt = jetzt;
+      schritt.startKuerzel = req.shopfloorKuerzel;
+      schritt.endZeitpunkt = null;
+      schritt.endKuerzel = null;
+      schritt.minutenIst = null;
+    } else if (aktion === 'fertig') {
+      schritt.status = 'fertig';
+      schritt.endZeitpunkt = jetzt;
+      schritt.endKuerzel = req.shopfloorKuerzel;
+      // Ohne vorheriges "Start" gibt es keine messbare Dauer - dann wird der
+      // Fortschritt dokumentiert und die Zeit bleibt leer, statt eine Dauer zu
+      // erfinden, die später in die Kalkulation wandert.
+      schritt.minutenIst = schritt.startZeitpunkt
+        ? Math.round((jetzt - new Date(schritt.startZeitpunkt)) / 60000)
+        : null;
+    } else {
+      schritt.status = 'offen';
+      schritt.startZeitpunkt = null;
+      schritt.startKuerzel = null;
+      schritt.endZeitpunkt = null;
+      schritt.endKuerzel = null;
+      schritt.minutenIst = null;
+    }
+
+    await order.save();
+    res.json(order.arbeitsschritte);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

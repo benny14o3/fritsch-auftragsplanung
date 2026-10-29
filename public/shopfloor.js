@@ -122,6 +122,18 @@ function zeigeLadefehler() {
     list.innerHTML = '<div class="empty-note">⚠ Die Aufträge konnten nicht geladen werden.<br><span style="font-size:12px;">Der nächste Versuch läuft automatisch. Bleibt es dabei, bitte im Büro Bescheid geben.</span></div>';
 }
 
+// Der Schritt, der die Tafel interessiert: der laufende, sonst der naechste
+// offene. Sind alle fertig, steht nichts mehr an.
+function aktuellerSchritt(order) {
+    const schritte = order.arbeitsschritte || [];
+    if (schritte.length === 0) return null;
+    const laeuft = schritte.find(s => s.status === 'laeuft');
+    if (laeuft) return { text: `▶ ${laeuft.name}`, laeuft: true };
+    const offen = schritte.find(s => s.status === 'offen');
+    if (offen) return { text: `als Nächstes: ${offen.name}`, laeuft: false };
+    return { text: 'Arbeitsfolge komplett', laeuft: false };
+}
+
 function fortschritt(order) {
     const stationen = order.laufzettel || [];
     const done = stationen.filter(s => s.erledigt).length;
@@ -211,6 +223,10 @@ function buildBoardKarte(order) {
     if (order.erstfreigabe?.erteilt) marken.push('<span class="board-marke frei">Erstfreigabe erteilt</span>');
     else marken.push('<span class="board-marke offen">Erstfreigabe offen</span>');
     if (fehlendeKomponenten > 0) marken.push(`<span class="board-marke fehlt">${fehlendeKomponenten} Komponente${fehlendeKomponenten === 1 ? '' : 'n'} offen</span>`);
+    // Woran gerade gearbeitet wird - wichtiger als eine Zahl: wer die Tafel
+    // ansieht, will wissen, wo das Teil steht, nicht wie viele Haken es hat.
+    const schrittMarke = aktuellerSchritt(order);
+    if (schrittMarke) marken.push(`<span class="board-marke ${schrittMarke.laeuft ? 'schritt-aktiv' : 'wartet'}">${schrittMarke.text}</span>`);
 
     const zeitraum = order.startDatum
         ? `${new Date(order.startDatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} – ${order.endDatum ? new Date(order.endDatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) : '?'}`
@@ -771,6 +787,7 @@ function renderDetail() {
     }
     renderDateiPreview('qpaBox', order.artikelnummer, 'qpa', qpa, 'Keine QPA hinterlegt.');
     renderKomponenten(order);
+    renderArbeitsfolge(order);
     renderPlp(plp);
     renderErstfreigabe(order, plp, erstfreigabeErforderlich, erstfreigabeOffen);
 
@@ -984,6 +1001,104 @@ function renderPlp(plp) {
         </table>
         </div>
     `;
+}
+
+// Arbeitsfolge: der Ist-Verlauf des Arbeitsplans. Je Schritt genau zwei
+// Meldungen - "Start" und "Fertig". Mehr Felder (Mengen, Gruende) waeren am
+// Tablet mit Handschuhen zu viel; Ausschuss laeuft weiter ueber die
+// Fehlersammelkarte.
+function renderArbeitsfolge(order) {
+    const box = document.getElementById('arbeitsfolgeBox');
+    if (!box) return;
+    const schritte = order.arbeitsschritte || [];
+    if (schritte.length === 0) {
+        box.innerHTML = '<div class="no-doc">Für diesen Artikel ist noch kein Arbeitsplan hinterlegt – im Büro unter Stammdaten → Artikel.</div>';
+        return;
+    }
+    const fertig = schritte.filter(s => s.status === 'fertig').length;
+    box.innerHTML = '';
+
+    const kopf = document.createElement('div');
+    kopf.className = 'schritt-meta';
+    kopf.style.marginBottom = '6px';
+    kopf.textContent = `${fertig} von ${schritte.length} Schritten fertig`;
+    box.appendChild(kopf);
+
+    schritte.forEach((s, i) => {
+        const row = document.createElement('div');
+        row.className = 'schritt' + (s.status === 'fertig' ? ' ist-fertig' : s.status === 'laeuft' ? ' ist-laeuft' : '');
+
+        const nr = document.createElement('div');
+        nr.className = 'schritt-nr';
+        nr.textContent = s.status === 'fertig' ? '✓' : String(i + 1);
+
+        const mitte = document.createElement('div');
+        mitte.className = 'schritt-mitte';
+        const name = document.createElement('div');
+        name.className = 'schritt-name';
+        name.textContent = s.name;
+        const meta = document.createElement('div');
+        meta.className = 'schritt-meta';
+        meta.textContent = schrittMetaText(s);
+        mitte.append(name, meta);
+
+        row.append(nr, mitte);
+
+        if (s.status !== 'fertig') {
+            const btn = document.createElement('button');
+            btn.className = 'schritt-btn ' + (s.status === 'laeuft' ? 'btn-fertig' : 'btn-start');
+            btn.textContent = s.status === 'laeuft' ? 'Fertig' : 'Start';
+            btn.addEventListener('click', () => meldeSchritt(s.schluessel, s.status === 'laeuft' ? 'fertig' : 'start', btn));
+            row.appendChild(btn);
+        } else {
+            const btn = document.createElement('button');
+            btn.className = 'schritt-btn btn-zurueck';
+            btn.textContent = 'Zurück';
+            btn.addEventListener('click', () => meldeSchritt(s.schluessel, 'zuruecknehmen', btn));
+            row.appendChild(btn);
+        }
+        box.appendChild(row);
+    });
+}
+
+function schrittMetaText(s) {
+    const zeit = d => new Date(d).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    if (s.status === 'laeuft') return `läuft seit ${zeit(s.startZeitpunkt)} · ${s.startKuerzel || '—'}`;
+    if (s.status === 'fertig') {
+        const dauer = s.minutenIst != null ? ` · ${dauerText(s.minutenIst)}` : '';
+        return `fertig ${zeit(s.endZeitpunkt)} · ${s.endKuerzel || '—'}${dauer}`;
+    }
+    return 'offen';
+}
+
+function dauerText(minuten) {
+    if (minuten < 60) return `${minuten} min`;
+    const h = Math.floor(minuten / 60);
+    const m = minuten % 60;
+    return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+async function meldeSchritt(schluessel, aktion, btn) {
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+    try {
+        const res = await fetch(`${API_URL}/orders/${activeOrderId}/arbeitsschritte/${encodeURIComponent(schluessel)}`, {
+            method: 'PATCH',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ aktion }),
+        });
+        if (res.status === 401) return handleAuthExpired();
+        if (!res.ok) {
+            const daten = await res.json().catch(() => ({}));
+            alert(daten.error || 'Die Meldung konnte nicht gespeichert werden.');
+            if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+            return;
+        }
+        currentDetail.order.arbeitsschritte = await res.json();
+        renderArbeitsfolge(currentDetail.order);
+    } catch (err) {
+        alert('Keine Verbindung - die Meldung wurde nicht gespeichert.');
+        if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    }
 }
 
 function renderLaufzettel(order) {
