@@ -2538,8 +2538,12 @@ function renderKostenMaschinen() {
             ? `<span class="kosten-satz">${euro(m.stundensatz)}/h</span>
                <div class="kosten-aufschluesselung">${beigestellt ? 'ohne AfA/Zins (beigestellt)' : `AfA ${euro(p.abschreibung)} · Zins ${euro(p.zinsen)}`} · Strom ${euro(p.energie)} · Raum ${euro(p.raum)} · Wartung ${euro(p.wartung)} · Hilfsbetriebe ${euro(p.hilfsbetrieb)}</div>`
             : `<span class="kosten-satz unvollstaendig">${euro(m.stundensatz)}/h</span>
-               <div class="kosten-aufschluesselung">unvollständig - ${m.fehlendeStunden ? 'Jahresstunden fehlen'
-                    : beigestellt ? 'Leistung oder Fläche fehlen' : 'Wert und Nutzungsdauer fehlen'}</div>`;
+               <div class="kosten-aufschluesselung">unvollständig - ${[
+                    m.fehlendeStunden ? 'Jahresstunden fehlen' : '',
+                    m.fehlenderLastanteil ? 'Lastanteil fehlt, der Strom zählt sonst nicht' : '',
+                    (beigestellt ? (m.posten.energie > 0 || m.posten.raum > 0) : m.jahresstunden > 0 && m.posten.abschreibung > 0)
+                        ? '' : beigestellt ? 'Leistung oder Fläche fehlen' : 'Wert und Nutzungsdauer fehlen',
+                ].filter(Boolean).join(' · ')}</div>`;
         tr.appendChild(satzTd);
         tbody.appendChild(tr);
     });
