@@ -59,7 +59,10 @@ async function istAuslastung() {
   const tage = werktage(montag, bis);
 
   const ergebnis = {};
-  MASCHINEN.forEach(m => {
+  // Nur beplante Maschinen: fuer eine reine Kostenstelle gaebe es sonst einen
+  // Eintrag mit 0 %, und die Oberflaeche wuerde "Auslastung laut Zeitplan 0 %"
+  // behaupten, wo es gar keinen Zeitplan gibt.
+  MASCHINEN.filter(m => m.planbar !== false).forEach(m => {
     let minuten = 0;
     tage.forEach(t => abschnitte.forEach(a => {
       if (!a.m.includes(m.id)) return;

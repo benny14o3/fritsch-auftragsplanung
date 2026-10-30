@@ -139,7 +139,10 @@ router.delete('/users/:id', authMiddleware, adminMiddleware, async (req, res) =>
 
 // Maschinenliste für den Maschinen-Modus (ein Tablet steht fest an einer
 // Maschine und zeigt dann immer den Auftrag, der dort gerade läuft).
-router.get('/maschinen', shopfloorAuthMiddleware, (req, res) => res.json(MASCHINEN));
+// Nur beplante Maschinen: eine reine Kostenstelle wie die Reinigungsanlage
+// haette hier immer ein leeres Board, weil nie ein Auftrag auf sie geplant wird.
+router.get('/maschinen', shopfloorAuthMiddleware, (req, res) =>
+  res.json(MASCHINEN.filter(m => m.planbar !== false)));
 
 // --- Board für die Werkstatt ---
 

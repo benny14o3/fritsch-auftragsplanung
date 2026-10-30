@@ -2480,8 +2480,14 @@ function renderKostenMaschinen() {
         const tr = document.createElement('tr');
         const nameTd = document.createElement('td');
         const ist = kostenAuslastung[m.maschineId];
+        const bereichText = m.type === 'Elastomer' ? 'Formgebung'
+            : m.type === 'PTFE' ? 'CNC' : 'Formgebung und CNC';
+        // Reine Kostenstellen stehen in keinem Zeitplan - dort gibt es keine
+        // Auslastung, aus der sich die Jahresstunden ableiten liessen.
+        const zusatz = ist ? ` · Auslastung laut Zeitplan ${ist.prozent} %`
+            : m.planbar === false ? ' · nicht im Zeitplan, Jahresstunden selbst eintragen' : '';
         nameTd.innerHTML = `<b>${escapeHtml(m.name)}</b>
-            <div class="kosten-aufschluesselung">${m.type === 'Elastomer' ? 'Formgebung' : 'CNC'}${ist ? ` · Auslastung laut Zeitplan ${ist.prozent} %` : ''}</div>`;
+            <div class="kosten-aufschluesselung">${bereichText}${zusatz}</div>`;
         // Eigene oder vom Kunden beigestellte Maschine - entscheidet, ob
         // Abschreibung und Zinsen überhaupt anfallen.
         const eigentumSelect = document.createElement('select');
@@ -2532,7 +2538,8 @@ function renderKostenMaschinen() {
             ? `<span class="kosten-satz">${euro(m.stundensatz)}/h</span>
                <div class="kosten-aufschluesselung">${beigestellt ? 'ohne AfA/Zins (beigestellt)' : `AfA ${euro(p.abschreibung)} · Zins ${euro(p.zinsen)}`} · Strom ${euro(p.energie)} · Raum ${euro(p.raum)} · Wartung ${euro(p.wartung)} · Hilfsbetriebe ${euro(p.hilfsbetrieb)}</div>`
             : `<span class="kosten-satz unvollstaendig">${euro(m.stundensatz)}/h</span>
-               <div class="kosten-aufschluesselung">unvollständig - ${beigestellt ? 'Leistung oder Fläche fehlen' : 'Wert und Nutzungsdauer fehlen'}</div>`;
+               <div class="kosten-aufschluesselung">unvollständig - ${m.fehlendeStunden ? 'Jahresstunden fehlen'
+                    : beigestellt ? 'Leistung oder Fläche fehlen' : 'Wert und Nutzungsdauer fehlen'}</div>`;
         tr.appendChild(satzTd);
         tbody.appendChild(tr);
     });
