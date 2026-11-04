@@ -149,6 +149,10 @@
         tr.ohne-rolle td { background: #fffbeb; }
         .komp-charge.charge-fehlt { border-color: #f59e0b; background: #fffbeb; }
         .kosten-aufschluesselung { font-size: 11px; color: #94a3b8; }
+        .zugang-recht { display: block; font-size: 12px; color: #334155; margin: 2px 0; cursor: pointer; }
+        .zugang-recht input { margin-right: 6px; }
+        .zugang-recht.aus { color: #94a3b8; }
+        .zugang-alles { font-size: 12px; color: #64748b; font-style: italic; }
         .zugang-badge { display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px; border-radius: 9px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 600; text-align: center; }
         .zugang-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
         .zugang-status.frei { background: #dcfce7; color: #15803d; }
@@ -865,8 +869,8 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th><th>E-Mail</th><th>Rolle</th><th>Status</th>
-                                <th>Letzter Login</th><th>Aktion</th>
+                                <th>Name</th><th>E-Mail</th><th>Rolle</th><th style="min-width: 260px;">Darf am Auftrag</th>
+                                <th>Status</th><th>Letzter Login</th><th>Aktion</th>
                             </tr>
                         </thead>
                         <tbody id="zugaengeTable"></tbody>

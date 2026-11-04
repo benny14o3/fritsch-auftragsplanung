@@ -190,6 +190,7 @@ function showPage(page) {
 // --- Zugangsverwaltung (nur Inhaber) ---
 
 let zugangsListe = [];
+let rechteKatalog = [];
 
 async function ladeZugaenge() {
     const note = document.getElementById('zugaengeNote');
@@ -200,6 +201,7 @@ async function ladeZugaenge() {
         const daten = await res.json();
         if (!res.ok) throw new Error(daten.error || 'Laden fehlgeschlagen');
         zugangsListe = daten.benutzer || [];
+        rechteKatalog = daten.rechteKatalog || [];
         renderZugaenge(daten.offen || 0);
         if (note) { note.style.color = '#64748b'; note.textContent = ''; }
     } catch (err) {
@@ -274,6 +276,41 @@ function renderZugaenge(offen) {
         rolleTd.appendChild(sel);
         tr.appendChild(rolleTd);
 
+        // Einzelrechte: nur fuer Konten, die keine Admins sind - ein Admin darf
+        // ohnehin alles, Haekchen waeren dort irrefuehrend.
+        const rechteTd = document.createElement('td');
+        if (u.role === 'admin') {
+            const alles = document.createElement('span');
+            alles.className = 'zugang-alles';
+            alles.textContent = u.inhaber ? 'alles (Inhaber)' : 'alles (Admin)';
+            rechteTd.appendChild(alles);
+        } else {
+            rechteKatalog.forEach(r => {
+                const label = document.createElement('label');
+                label.className = 'zugang-recht' + (u.rechte.includes(r.schluessel) ? '' : ' aus');
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.checked = u.rechte.includes(r.schluessel);
+                box.addEventListener('change', () => {
+                    const neu = rechteKatalog
+                        .filter(x => rechteTd.querySelector(`input[data-recht="${x.schluessel}"]`)?.checked)
+                        .map(x => x.schluessel);
+                    aendereZugang(u, { rechte: neu });
+                });
+                box.dataset.recht = r.schluessel;
+                label.appendChild(box);
+                label.appendChild(document.createTextNode(r.name));
+                rechteTd.appendChild(label);
+            });
+            if (u.rechte.length === 0) {
+                const nix = document.createElement('div');
+                nix.className = 'zugang-sub';
+                nix.textContent = 'nur ansehen';
+                rechteTd.appendChild(nix);
+            }
+        }
+        tr.appendChild(rechteTd);
+
         const statusTd = document.createElement('td');
         const status = document.createElement('span');
         status.className = `zugang-status ${u.freigegeben ? 'frei' : 'gesperrt'}`;
@@ -336,6 +373,7 @@ async function aendereZugang(u, aenderung) {
             note.style.color = '#15803d';
             note.textContent = aenderung.freigegeben === true ? `${u.name} ist freigegeben.`
                 : aenderung.freigegeben === false ? `${u.name} ist gesperrt - bestehende Anmeldungen gelten ab sofort nicht mehr.`
+                : aenderung.rechte ? `Rechte von ${u.name} gespeichert.`
                 : `Rolle von ${u.name} geändert.`;
         }
     } catch (err) {

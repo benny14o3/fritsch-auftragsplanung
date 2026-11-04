@@ -13,6 +13,10 @@ const userSchema = new mongoose.Schema({
   // weder durch den Login noch mit einem Token, das vorher ausgestellt wurde
   // (middleware/auth.js prueft bei jeder Anfrage).
   freigegeben: { type: Boolean, default: false },
+  // Einzelrechte an den Auftraegen fuer Konten, die keine Admins sind -
+  // welches Recht welche Felder oeffnet, steht in lib/auftragsrechte.js.
+  // Leer heisst: nur ansehen.
+  rechte: [{ type: String, enum: ['planen', 'kommentieren', 'wareneingang', 'phase', 'menge'] }],
   freigegebenAm: { type: Date, default: null },
   freigegebenVon: { type: String, default: null },
   // Warum gesperrt - erscheint in der Benutzerverwaltung, damit nach Monaten

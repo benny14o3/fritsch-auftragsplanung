@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const KomponentenBild = require('../models/KomponentenBild');
 const Artikelstamm = require('../models/Artikelstamm');
 const authMiddleware = require('../middleware/auth');
+const { verbotenefelder, rechteVon } = require('../lib/auftragsrechte');
 const { aktuelleVersion, abonniere } = require('../lib/orderEvents');
 const adminMiddleware = require('../middleware/admin');
 
@@ -131,8 +132,18 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 });
 
 // Für Drag & Drop und Phasenwechsel (Produktion -> Endbearbeitung -> Ausgeliefert).
-router.patch('/:orderId', authMiddleware, adminMiddleware, async (req, res) => {
+router.patch('/:orderId', authMiddleware, async (req, res) => {
   try {
+    // Nicht jedes Konto darf jedes Feld aendern (siehe lib/auftragsrechte.js).
+    // Geprueft wird, was tatsaechlich im Body steht - wer nur einen Kommentar
+    // schickt, braucht kein Recht auf Termine.
+    const verboten = verbotenefelder(req.user, req.body);
+    if (verboten.length > 0) {
+      return res.status(403).json({
+        error: 'Für diese Änderung fehlt dir die Berechtigung',
+        felder: verboten,
+      });
+    }
     const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang, dbType, manuellEingeplant, kommentar, menge, gesamtmenge, bestellmenge, lieferungen, bearbeitungsMin, schichten, teilmengen } = req.body;
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
@@ -194,6 +205,11 @@ router.patch('/:orderId', authMiddleware, adminMiddleware, async (req, res) => {
 // Änderung (Charge, Datum, ...) unnötig mitgeschickt werden müsste.
 router.put('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) => {
   try {
+    // Das Foto gehoert zur Wareneingangsbuchung - dasselbe Recht wie fuer die
+    // Komponentenfelder im PATCH.
+    if (!rechteVon(req.user).includes('wareneingang')) {
+      return res.status(403).json({ error: 'Für Wareneingänge fehlt dir die Berechtigung' });
+    }
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     const komponente = order.komponenten[req.params.idx];
