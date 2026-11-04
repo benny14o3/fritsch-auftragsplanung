@@ -12,3 +12,4 @@ build/
 
 # Zugangsdaten gehoeren nie ins Repository
 ZUGANGSDATEN*.csv
+EMAILS-ZUGANGSDATEN.md
