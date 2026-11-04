@@ -7,6 +7,18 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: { type: String, enum: ['admin', 'user'], default: 'user' },
   company: { type: String, default: 'Formteile Fritsch GmbH' },
+  // Wer den Einladungscode kennt, kann sich ein Konto anlegen - der Code laesst
+  // sich weitergeben und ist damit kein Zugangsschutz. Ein neues Konto ist
+  // deshalb gesperrt, bis der Inhaber es freigibt. Ohne Freigabe kommt man
+  // weder durch den Login noch mit einem Token, das vorher ausgestellt wurde
+  // (middleware/auth.js prueft bei jeder Anfrage).
+  freigegeben: { type: Boolean, default: false },
+  freigegebenAm: { type: Date, default: null },
+  freigegebenVon: { type: String, default: null },
+  // Warum gesperrt - erscheint in der Benutzerverwaltung, damit nach Monaten
+  // noch nachvollziehbar ist, weshalb jemand draussen steht.
+  sperrgrund: { type: String, default: '' },
+  letzterLogin: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 

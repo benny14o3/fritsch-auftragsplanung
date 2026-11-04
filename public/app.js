@@ -46,6 +46,7 @@ async function handleLogin() {
         showApp();
         loadArtikelstamm();
         loadInviteInfo();
+        ladeOffeneFreigaben();
     } catch (err) {
         document.getElementById('authError').textContent = err.message;
         document.getElementById('authError').classList.remove('hidden');
@@ -69,6 +70,18 @@ async function handleRegister() {
 
         if (!res.ok) throw new Error(data.error);
 
+        // Neue Konten sind gesperrt, bis der Inhaber sie freigibt - es kommt
+        // also kein Token zurueck, und die Oberflaeche darf nicht aufgehen.
+        if (data.wartetAufFreigabe) {
+            const hinweis = document.getElementById('regError');
+            hinweis.style.color = '#15803d';
+            hinweis.textContent = data.message;
+            hinweis.classList.remove('hidden');
+            ['registerName', 'registerEmail', 'registerPassword', 'registerPasswordConfirm']
+                .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            return;
+        }
+
         token = data.token;
         currentUser = data.user;
         localStorage.setItem('token', token);
@@ -76,6 +89,7 @@ async function handleRegister() {
         loadArtikelstamm();
         loadInviteInfo();
     } catch (err) {
+        document.getElementById('regError').style.color = '';
         document.getElementById('regError').textContent = err.message;
         document.getElementById('regError').classList.remove('hidden');
     }
@@ -142,7 +156,7 @@ const ADMIN_ONLY_PAGES = ['converter', 'planner', 'databases'];
 // Die Kostensätze sieht auch unter Admins nur der Inhaber - Löhne, Maschinenwerte
 // und Marge gehören niemandem sonst. Der Server lehnt sie ohnehin ab, die
 // Oberfläche versteckt sie zusätzlich, damit niemand erst gegen eine 403 läuft.
-const INHABER_ONLY_PAGES = ['kostensaetze'];
+const INHABER_ONLY_PAGES = ['kostensaetze', 'zugaenge'];
 function istInhaber() { return currentUser?.inhaber === true; }
 // Formgebung (Elastomer/Maplan) und CNC (PTFE) sind komplett getrennte Bereiche -
 // eigenes Board, eigene Endbearbeitung, eigenes Ausgeliefert je Bereich.
@@ -170,6 +184,164 @@ function showPage(page) {
     if (page === 'databases') { fetchWerker(); fetchBackupStand(); ladeArbeitsgangKatalog(); }
     if (page === 'wareneingaenge') fetchWareneingaenge();
     if (page === 'kostensaetze') ladeKostensaetze();
+    if (page === 'zugaenge') ladeZugaenge();
+}
+
+// --- Zugangsverwaltung (nur Inhaber) ---
+
+let zugangsListe = [];
+
+async function ladeZugaenge() {
+    const note = document.getElementById('zugaengeNote');
+    try {
+        const res = await fetch(`${API_URL}/benutzer`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const daten = await res.json();
+        if (!res.ok) throw new Error(daten.error || 'Laden fehlgeschlagen');
+        zugangsListe = daten.benutzer || [];
+        renderZugaenge(daten.offen || 0);
+        if (note) { note.style.color = '#64748b'; note.textContent = ''; }
+    } catch (err) {
+        if (note) { note.style.color = '#b91c1c'; note.textContent = `Laden fehlgeschlagen: ${err.message}`; }
+    }
+}
+
+// Die Zahl am Navigationspunkt zeigt offene Freigaben - sonst bemerkt man eine
+// neue Registrierung erst, wenn man zufaellig hereinschaut.
+function setzeZugangsBadge(offen) {
+    const badge = document.getElementById('zugaengeBadge');
+    if (!badge) return;
+    badge.textContent = offen > 0 ? String(offen) : '';
+    badge.classList.toggle('hidden', offen === 0);
+}
+
+function renderZugaenge(offen) {
+    setzeZugangsBadge(offen);
+    const hinweis = document.getElementById('zugaengeHinweis');
+    if (hinweis) {
+        hinweis.textContent = offen > 0
+            ? (offen === 1 ? '1 Konto wartet auf deine Freigabe.' : `${offen} Konten warten auf deine Freigabe.`)
+            : `${zugangsListe.length} Konten, alle entschieden.`;
+    }
+    const tbody = document.getElementById('zugaengeTable');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    zugangsListe.forEach(u => {
+        const tr = document.createElement('tr');
+
+        const nameTd = document.createElement('td');
+        const nameB = document.createElement('b');
+        nameB.textContent = u.name;
+        nameTd.appendChild(nameB);
+        if (u.inhaber) {
+            const kennung = document.createElement('span');
+            kennung.className = 'zugang-extern';
+            kennung.style.background = '#e0e7ff';
+            kennung.style.color = '#3730a3';
+            kennung.textContent = 'Inhaber';
+            nameTd.appendChild(kennung);
+        }
+        const angelegt = document.createElement('div');
+        angelegt.className = 'zugang-sub';
+        angelegt.textContent = `angelegt ${new Date(u.createdAt).toLocaleDateString('de-DE')}`;
+        nameTd.appendChild(angelegt);
+        tr.appendChild(nameTd);
+
+        const mailTd = document.createElement('td');
+        mailTd.textContent = u.email;
+        if (u.extern) {
+            const extern = document.createElement('span');
+            extern.className = 'zugang-extern';
+            extern.textContent = 'extern';
+            mailTd.appendChild(extern);
+        }
+        tr.appendChild(mailTd);
+
+        // Rolle: Admins duerfen Auftraege aendern und loeschen, normale Konten
+        // nur ansehen.
+        const rolleTd = document.createElement('td');
+        const sel = document.createElement('select');
+        [['user', 'nur ansehen'], ['admin', 'Admin (ändern/löschen)']].forEach(([wert, text]) => {
+            const opt = document.createElement('option');
+            opt.value = wert;
+            opt.textContent = text;
+            if (u.role === wert) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        sel.disabled = u.inhaber;
+        sel.addEventListener('change', () => aendereZugang(u, { role: sel.value }));
+        rolleTd.appendChild(sel);
+        tr.appendChild(rolleTd);
+
+        const statusTd = document.createElement('td');
+        const status = document.createElement('span');
+        status.className = `zugang-status ${u.freigegeben ? 'frei' : 'gesperrt'}`;
+        status.textContent = u.freigegeben ? 'freigegeben' : 'gesperrt';
+        statusTd.appendChild(status);
+        if (u.freigegeben && u.freigegebenAm) {
+            const sub = document.createElement('div');
+            sub.className = 'zugang-sub';
+            sub.textContent = `seit ${new Date(u.freigegebenAm).toLocaleDateString('de-DE')}`;
+            statusTd.appendChild(sub);
+        }
+        if (!u.freigegeben && u.sperrgrund) {
+            const sub = document.createElement('div');
+            sub.className = 'zugang-sub';
+            sub.textContent = u.sperrgrund;
+            statusTd.appendChild(sub);
+        }
+        tr.appendChild(statusTd);
+
+        const loginTd = document.createElement('td');
+        loginTd.textContent = u.letzterLogin
+            ? new Date(u.letzterLogin).toLocaleDateString('de-DE')
+            : 'noch nie';
+        tr.appendChild(loginTd);
+
+        const aktionTd = document.createElement('td');
+        if (!u.inhaber) {
+            const btn = document.createElement('button');
+            btn.className = `btn ${u.freigegeben ? 'btn-secondary' : 'btn-primary'}`;
+            btn.style.width = 'auto';
+            btn.textContent = u.freigegeben ? 'Sperren' : 'Freigeben';
+            btn.addEventListener('click', () => {
+                if (u.freigegeben) {
+                    const grund = prompt(`${u.name} sperren. Grund (erscheint in dieser Liste):`, '');
+                    if (grund === null) return;
+                    aendereZugang(u, { freigegeben: false, sperrgrund: grund });
+                } else {
+                    aendereZugang(u, { freigegeben: true });
+                }
+            });
+            aktionTd.appendChild(btn);
+        }
+        tr.appendChild(aktionTd);
+        tbody.appendChild(tr);
+    });
+}
+
+async function aendereZugang(u, aenderung) {
+    const note = document.getElementById('zugaengeNote');
+    try {
+        const res = await fetch(`${API_URL}/benutzer/${u.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(aenderung),
+        });
+        const daten = await res.json();
+        if (!res.ok) throw new Error(daten.error || 'Fehlgeschlagen');
+        await ladeZugaenge();
+        if (note) {
+            note.style.color = '#15803d';
+            note.textContent = aenderung.freigegeben === true ? `${u.name} ist freigegeben.`
+                : aenderung.freigegeben === false ? `${u.name} ist gesperrt - bestehende Anmeldungen gelten ab sofort nicht mehr.`
+                : `Rolle von ${u.name} geändert.`;
+        }
+    } catch (err) {
+        if (note) { note.style.color = '#b91c1c'; note.textContent = `Fehlgeschlagen: ${err.message}`; }
+        await ladeZugaenge();
+    }
 }
 
 async function loadExistingBoard() {
@@ -6065,14 +6237,41 @@ async function initSession() {
         const res = await fetch(`${API_URL}/auth/me`, {
             headers: { 'Authorization': `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error('Sitzung abgelaufen');
+        if (!res.ok) {
+            // Bei einer Sperre den Grund zeigen, statt stumm die Login-Maske
+            // anzubieten - sonst probiert die Person ihr Passwort dreimal.
+            const daten = await res.json().catch(() => ({}));
+            if (daten.freigabeFehlt) {
+                const fehler = document.getElementById('authError');
+                fehler.textContent = daten.error;
+                fehler.classList.remove('hidden');
+            }
+            throw new Error(daten.error || 'Sitzung abgelaufen');
+        }
         currentUser = await res.json();
         showApp();
         loadArtikelstamm();
         loadInviteInfo();
+        ladeOffeneFreigaben();
     } catch (err) {
         localStorage.removeItem('token');
         token = null;
+    }
+}
+
+// Offene Freigaben beim Start zaehlen, damit die Zahl am Navigationspunkt
+// steht, ohne dass die Seite geoeffnet werden muss.
+async function ladeOffeneFreigaben() {
+    if (!istInhaber()) return;
+    try {
+        const res = await fetch(`${API_URL}/benutzer`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const daten = await res.json();
+        setzeZugangsBadge(daten.offen || 0);
+    } catch (err) {
+        // Die Zahl ist ein Hinweis, kein Grund den Start zu stoeren
     }
 }
 

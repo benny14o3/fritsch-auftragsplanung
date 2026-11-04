@@ -1,9 +1,9 @@
 const User = require('../models/User');
 
-// Muss nach authMiddleware laufen (braucht req.userId).
+// Muss nach authMiddleware laufen (die legt req.user ab).
 const adminMiddleware = async (req, res, next) => {
   try {
-    const user = await User.findById(req.userId);
+    const user = req.user || await User.findById(req.userId);
     if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Nur für Admins' });
     next();
   } catch (err) {

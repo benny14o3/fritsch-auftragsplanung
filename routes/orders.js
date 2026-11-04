@@ -131,7 +131,7 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 });
 
 // Für Drag & Drop und Phasenwechsel (Produktion -> Endbearbeitung -> Ausgeliefert).
-router.patch('/:orderId', authMiddleware, async (req, res) => {
+router.patch('/:orderId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { maschineId, maschineId2, startDatum, endDatum, position, status, komponenten, phase, warenausgang, dbType, manuellEingeplant, kommentar, menge, gesamtmenge, bestellmenge, lieferungen, bearbeitungsMin, schichten, teilmengen } = req.body;
     const order = await Order.findById(req.params.orderId);
@@ -224,7 +224,7 @@ router.get('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) =
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/:orderId/komponenten/:idx/bild', authMiddleware, async (req, res) => {
+router.delete('/:orderId/komponenten/:idx/bild', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
@@ -296,7 +296,7 @@ function berechneBearbeitungszeit(dbType, menge, kavitaet, rundenProSchicht, zei
 // nachgezogen. Prozesszeiten: bearbeitungsMin/schichten (Haupt- und jeder
 // Teilmengen-Abschnitt) werden neu berechnet, ein bereits gesetztes Startdatum
 // bleibt fix, nur das Enddatum verschiebt sich entsprechend.
-router.post('/sync-artikeldaten', authMiddleware, async (req, res) => {
+router.post('/sync-artikeldaten', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { dbType } = req.body;
     const filter = { phase: 'produktion' };
@@ -370,7 +370,7 @@ router.post('/sync-artikeldaten', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/:orderId', authMiddleware, async (req, res) => {
+router.delete('/:orderId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await Order.deleteOne({ _id: req.params.orderId });
     // Fotos liegen in einer eigenen Sammlung - sonst blieben sie als Waisen zurück.

@@ -149,6 +149,13 @@
         tr.ohne-rolle td { background: #fffbeb; }
         .komp-charge.charge-fehlt { border-color: #f59e0b; background: #fffbeb; }
         .kosten-aufschluesselung { font-size: 11px; color: #94a3b8; }
+        .zugang-badge { display: inline-block; min-width: 18px; padding: 1px 6px; margin-left: 4px; border-radius: 9px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 600; text-align: center; }
+        .zugang-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+        .zugang-status.frei { background: #dcfce7; color: #15803d; }
+        .zugang-status.gesperrt { background: #fee2e2; color: #b91c1c; }
+        .zugang-extern { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 600; }
+        .zugang-sub { color: #64748b; font-size: 12px; margin-top: 2px; }
+        #zugaengePage table select { padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
         #kostensaetzePage table input, #kostensaetzePage table select { width: 100%; min-width: 70px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px; font-family: inherit; }
 
         /* Arbeitsplan je Artikel */
@@ -388,6 +395,7 @@
             <div class="sidebar-item" data-page="wareneingaenge">📥 Wareneingänge</div>
             <div class="sidebar-item admin-only hidden" data-page="databases">💾 Datenbanken</div>
             <div class="sidebar-item inhaber-only hidden" data-page="kostensaetze">💶 Kostensätze</div>
+            <div class="sidebar-item inhaber-only hidden" data-page="zugaenge">🔐 Zugänge <span id="zugaengeBadge" class="zugang-badge hidden"></span></div>
             <div class="sidebar-section-label">Werkstatt</div>
             <div class="sidebar-item" id="openShopfloorBtn">🏭 Shopfloor öffnen</div>
         </div>
@@ -841,6 +849,30 @@
                         <tbody id="weTable"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <div id="zugaengePage" class="page hidden">
+            <div class="card">
+                <h3>Zugänge zum Planungstool</h3>
+                <p style="color: #64748b; margin-bottom: 16px; font-size: 13px;">
+                    Jedes neue Konto ist gesperrt, bis du es hier freigibst - der Einladungscode allein öffnet nichts mehr.
+                    Eine Sperre wirkt sofort, auch bei jemandem, der gerade angemeldet ist.
+                    Adressen außerhalb von <i>@fritsch-weinheim.com</i> sind als <b>extern</b> gekennzeichnet.
+                </p>
+                <div id="zugaengeHinweis" class="kosten-ergebnis-zeile" style="margin-top:0;margin-bottom:16px;"></div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>E-Mail</th><th>Rolle</th><th>Status</th>
+                                <th>Letzter Login</th><th>Aktion</th>
+                            </tr>
+                        </thead>
+                        <tbody id="zugaengeTable"></tbody>
+                    </table>
+                </div>
+                <p id="zugaengeNote" style="font-size: 13px; color: #64748b; margin-top: 12px;"></p>
             </div>
         </div>
 

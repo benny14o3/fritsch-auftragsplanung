@@ -9,3 +9,6 @@ npm-debug.log*
 .idea/
 dist/
 build/
+
+# Zugangsdaten gehoeren nie ins Repository
+ZUGANGSDATEN*.csv

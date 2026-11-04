@@ -16,7 +16,22 @@ router.post('/register', async (req, res) => {
     if (existingUser) return res.status(400).json({ error: 'Email bereits registriert' });
     const userCount = await User.countDocuments();
     const role = userCount === 0 ? 'admin' : 'user';
-    const user = await User.create({ email, name, password, company: 'Formteile Fritsch GmbH', role });
+    // Das erste Konto ist der Inhaber selbst - das muss ohne Freigabe gehen,
+    // sonst gaebe es niemanden, der freigeben koennte. Alle weiteren warten.
+    const freigegeben = userCount === 0;
+    const user = await User.create({
+      email, name, password, company: 'Formteile Fritsch GmbH', role, freigegeben,
+      freigegebenAm: freigegeben ? new Date() : null,
+      freigegebenVon: freigegeben ? 'erstes Konto' : null,
+    });
+    if (!freigegeben) {
+      // Kein Token: das Konto existiert, der Zugang nicht. Wer sich registriert,
+      // soll nicht den Eindruck bekommen, er sei drin.
+      return res.status(201).json({
+        wartetAufFreigabe: true,
+        message: 'Konto angelegt. Der Zugang muss noch freigegeben werden - du wirst benachrichtigt, sobald das erledigt ist.',
+      });
+    }
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.status(201).json({ token, user: { id: user._id, email: user.email, name: user.name, role: user.role, inhaber: istInhaber(user) } });
   } catch (err) {
@@ -42,6 +57,18 @@ router.post('/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Email oder Passwort falsch' });
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) return res.status(401).json({ error: 'Email oder Passwort falsch' });
+    // Freigabe erst nach dem Passwort pruefen: wer das Passwort nicht kennt,
+    // soll nicht erfahren, ob es dieses Konto gibt.
+    if (!user.freigegeben && !istInhaber(user)) {
+      return res.status(403).json({
+        error: user.sperrgrund
+          ? `Zugang gesperrt: ${user.sperrgrund}`
+          : 'Dein Konto ist noch nicht freigegeben.',
+        freigabeFehlt: true,
+      });
+    }
+    user.letzterLogin = new Date();
+    await user.save();
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id: user._id, email: user.email, name: user.name, role: user.role, inhaber: istInhaber(user) } });
   } catch (err) {

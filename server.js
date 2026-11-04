@@ -14,6 +14,7 @@ const shopfloorRoutes = require('./routes/shopfloor');
 const backupRoutes = require('./routes/backup');
 const arbeitsgangRoutes = require('./routes/arbeitsgaenge');
 const kostensatzRoutes = require('./routes/kostensaetze');
+const benutzerRoutes = require('./routes/benutzer');
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use('/api/shopfloor', shopfloorRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/arbeitsgaenge', arbeitsgangRoutes);
 app.use('/api/kostensaetze', kostensatzRoutes);
+app.use('/api/benutzer', benutzerRoutes);
 
 // Frontend
 app.get('/', (req, res) => {
