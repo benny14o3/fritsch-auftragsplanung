@@ -5211,17 +5211,6 @@ async function loeseUeberlappungen(dbType) {
     }
 }
 
-// Passt der bereits vergebene Termin noch? Dann bleibt er stehen - ein Auftrag
-// soll nicht grundlos verschoben werden, nur weil er neu im Zeitplan auftaucht.
-function istZeitraumFrei(order, maschinenIds, exclude = {}) {
-    if (!order.startDatum || !order.endDatum) return false;
-    const start = tagesBeginn(order.startDatum);
-    const ende = tagesBeginn(order.endDatum);
-    if (ende < nextWeekday(tagesBeginn(new Date()))) return false; // Termin liegt in der Vergangenheit
-    const belegt = maschinenIds.filter(Boolean).flatMap(id => belegteZeitraeume(id, exclude));
-    return !belegt.some(b => b.start <= ende && b.ende >= start);
-}
-
 async function handleManualAddOrder() {
     const note = document.getElementById('manualAddNote');
     const auftragsnummer = document.getElementById('manualAuftragsnummer').value.trim();
@@ -5506,9 +5495,10 @@ async function planeOhneTerminEin(orderId) {
 
 // Auftrag trotz fehlender Komponenten in den Zeitplan aufnehmen (oder wieder
 // entfernen). Der Auftrag hat zwar schon einen Termin aus der Einplanung, der
-// ist aber oft längst überholt - der Balken lag dann im Zeitplan über einem
-// anderen oder weit hinten. Deshalb beim Aufnehmen einen echten freien Platz
-// suchen und nur einen Termin behalten, der noch frei ist.
+// stammt aber aus der Reihung hinter allen anderen - auch hinter denen, die
+// gar nicht im Zeitplan stehen. Ihn zu behalten, nur weil dort gerade nichts
+// liegt, setzte den Balken Monate nach hinten, obwohl die Maschine vorher
+// frei war. Beim Aufnehmen deshalb immer die früheste freie Lücke ab heute.
 async function setManuellEingeplant(orderId, wert) {
     const order = boardOrders.find(o => o._id === orderId);
     if (!order) return;
@@ -5517,17 +5507,14 @@ async function setManuellEingeplant(orderId, wert) {
     const patchBody = { manuellEingeplant: wert };
     if (wert && order.maschineId) {
         const maschinen = [order.maschineId, order.maschineId2];
-        const exclude = { orderId: order._id };
-        if (!istZeitraumFrei(order, maschinen, exclude)) {
-            const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
-            const { startDatum, endDatum } = findePlanungsZeitraum(order, maschinen, tage, exclude);
-            order.startDatum = startDatum;
-            order.endDatum = endDatum;
-            order.status = 'geplant';
-            patchBody.startDatum = startDatum;
-            patchBody.endDatum = endDatum;
-            patchBody.status = order.status;
-        }
+        const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
+        const { startDatum, endDatum } = findePlanungsZeitraum(order, maschinen, tage, { orderId: order._id });
+        order.startDatum = startDatum;
+        order.endDatum = endDatum;
+        order.status = 'geplant';
+        patchBody.startDatum = startDatum;
+        patchBody.endDatum = endDatum;
+        patchBody.status = order.status;
     }
 
     renderAll();
