@@ -1530,6 +1530,11 @@ function openArticleDetailModal(material) {
     renderArticleDetailDatei('einstelldatenblatt', article.einstelldatenblatt);
     renderArticleDetailDatei('qpa', article.qpa);
     renderArticleDetailPlp();
+    // Ausschuss und Zuschlag gelten nur für eine Ansicht - beim nächsten
+    // Artikel wieder leer, sonst rechnet er unbemerkt mit fremden Werten.
+    document.getElementById('preisAusschuss').value = '';
+    document.getElementById('preisMarge').value = '';
+    ladeArtikelPreis();
     document.getElementById('articleDetailZeichnungFile').value = '';
     document.getElementById('articleDetailEinstelldatenblattFile').value = '';
     document.getElementById('articleDetailQpaFile').value = '';
@@ -2057,6 +2062,85 @@ function renderZusatzmaterial() {
     </div>`;
 }
 
+// --- Preis je Artikel (nur Inhaber) ---
+// Gerechnet wird auf dem Server (lib/kalkulation.js) mit dem gespeicherten
+// Stand - die Oberfläche zeigt nur an, damit es genau eine Formel gibt.
+async function ladeArtikelPreis() {
+    const box = document.getElementById('articleDetailPreis');
+    if (!box || !istInhaber() || !articleDetailMaterial) return;
+    const material = articleDetailMaterial;
+    box.innerHTML = '<p class="modal-sub">Preis wird gerechnet…</p>';
+    const params = new URLSearchParams();
+    const mengen = document.getElementById('preisMengen').value.trim();
+    const ausschuss = document.getElementById('preisAusschuss').value;
+    const marge = document.getElementById('preisMarge').value;
+    if (mengen) params.set('mengen', mengen);
+    if (ausschuss !== '') params.set('ausschuss', ausschuss);
+    if (marge !== '') params.set('marge', marge);
+    try {
+        const res = await fetch(`${API_URL}/kalkulation/${encodeURIComponent(material)}?${params}`, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const daten = await res.json();
+        if (!res.ok) throw new Error(daten.error || 'Fehlgeschlagen');
+        // Inzwischen ein anderer Artikel geöffnet? Dann gehört die Antwort nicht hierher.
+        if (articleDetailMaterial !== material) return;
+        renderArtikelPreis(daten);
+    } catch (err) {
+        box.innerHTML = `<p class="modal-sub" style="color:#b91c1c;">Preis konnte nicht gerechnet werden: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function renderArtikelPreis(k) {
+    const box = document.getElementById('articleDetailPreis');
+    if (!box) return;
+    const ct = n => (n * 100).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ct';
+    const satz = n => n > 0 ? euro(n) + '/h' : '–';
+    const einheit = { stueck: 'je Teil', charge: 'je Charge', auftrag: 'je Auftrag' };
+
+    const warnungen = k.warnungen.length > 0
+        ? `<div class="preis-warnung"><b>Der Preis ist unvollständig</b> - diese Punkte fehlen oder zählen mit 0 €:<ul>${k.warnungen.map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>`
+        : '';
+
+    const schritte = k.schritte.map(s => `<tr>
+            <td>${escapeHtml(s.name)}<div class="preis-sub">${escapeHtml(s.zeitText)}</div></td>
+            <td>${s.personalanteilProzent > 0 ? `${satz(s.lohnsatz)}${s.personalanteilProzent < 100 ? ` × ${s.personalanteilProzent} %` : ''}` : '–'}</td>
+            <td>${satz(s.maschinensatz)}${s.maschinenName ? `<div class="preis-sub">${escapeHtml(s.maschinenName)}</div>` : ''}</td>
+            <td>${s.abrechnung === 'stueck' ? ct(s.kosten) : euro(s.kosten)} <span class="preis-sub">${einheit[s.abrechnung]}</span></td>
+        </tr>`).join('');
+    const positionen = [...k.materialPositionen.map(m => ['Material', m]), ...k.werkzeugPositionen.map(w => ['Werkzeug', w])]
+        .map(([art, x]) => `<tr><td>${art}: ${escapeHtml(x.bezeichnung)}</td><td>–</td><td>–</td><td>${ct(x.proTeil)} <span class="preis-sub">je Teil</span></td></tr>`).join('');
+
+    // Ohne Arbeitsgänge, Material und Werkzeug gibt es nichts zu rechnen -
+    // eine Staffel aus lauter Nullen sähe aus wie ein Ergebnis.
+    if (!schritte && !positionen) { box.innerHTML = warnungen; return; }
+
+    const zeile = (titel, feld, klasse = '') => `<tr class="${klasse}"><td>${titel}</td>${k.staffel.map(t => `<td>${ct(t[feld])}</td>`).join('')}</tr>`;
+    const z = k.zuschlaege;
+    const staffel = `<table class="preis-tabelle">
+        <thead><tr><th>je Teil bei Losgröße</th>${k.staffel.map(t => `<th>${t.menge.toLocaleString('de-DE')} Stk</th>`).join('')}</tr></thead>
+        <tbody>
+            ${zeile('Rüsten und Anlauf', 'ruestProTeil')}
+            ${k.schritte.some(s => s.abrechnung === 'charge') ? zeile('Chargenschritte', 'chargeProTeil') : ''}
+            ${zeile('Fertigung je Teil', 'stueckProTeil')}
+            ${k.materialPositionen.length > 0 ? zeile('Material', 'materialProTeil') : ''}
+            ${k.werkzeugPositionen.length > 0 ? zeile('Werkzeug', 'werkzeugProTeil') : ''}
+            ${zeile('Herstellkosten', 'herstellkosten')}
+            ${zeile(`+ ${z.ausschussProzent.toLocaleString('de-DE')} % Ausschuss`, 'mitAusschuss')}
+            ${zeile(`+ ${z.verwaltungVertriebProzent.toLocaleString('de-DE')} % Verwaltung/Vertrieb`, 'selbstkosten')}
+            <tr class="preis-zeile"><td>Preis (+ ${z.margeProzent.toLocaleString('de-DE')} % Zuschlag)</td>${k.staffel.map(t => `<td>${euro(t.preis)}</td>`).join('')}</tr>
+            <tr><td>Auftragswert</td>${k.staffel.map(t => `<td>${euro(t.auftragswert)}</td>`).join('')}</tr>
+        </tbody>
+    </table>`;
+
+    box.innerHTML = warnungen + staffel + `<table class="preis-tabelle">
+        <thead><tr><th>Woraus sich das ergibt</th><th>Lohnsatz</th><th>Maschinensatz</th><th>Kosten</th></tr></thead>
+        <tbody>${schritte}${positionen}</tbody>
+    </table>`;
+}
+
+document.getElementById('preisBerechnenBtn')?.addEventListener('click', ladeArtikelPreis);
+
 const PLP_TYP_LABEL = { prozess: 'Prozessschritt', masspruefung: 'Maßprüfung', iopruefung: 'i.O./n.i.O.-Prüfung' };
 
 // Prüfstufe: WANN im Auftrag geprüft wird. Die Vorhaltemaße gehören zur
@@ -2391,6 +2475,8 @@ document.getElementById('articleDetailSaveBtn')?.addEventListener('click', async
         renderDatabaseTable();
         note.style.color = '#15803d';
         note.textContent = '✅ Gespeichert.';
+        // Der Preis rechnet mit dem gespeicherten Stand - also jetzt neu.
+        ladeArtikelPreis();
     } catch (err) {
         note.style.color = '#b91c1c';
         note.textContent = 'Speichern fehlgeschlagen.';

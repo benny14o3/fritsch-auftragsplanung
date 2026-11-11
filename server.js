@@ -15,6 +15,7 @@ const backupRoutes = require('./routes/backup');
 const arbeitsgangRoutes = require('./routes/arbeitsgaenge');
 const kostensatzRoutes = require('./routes/kostensaetze');
 const benutzerRoutes = require('./routes/benutzer');
+const kalkulationRoutes = require('./routes/kalkulation');
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/arbeitsgaenge', arbeitsgangRoutes);
 app.use('/api/kostensaetze', kostensatzRoutes);
 app.use('/api/benutzer', benutzerRoutes);
+app.use('/api/kalkulation', kalkulationRoutes);
 
 // Frontend
 app.get('/', (req, res) => {
