@@ -14,3 +14,6 @@ build/
 ZUGANGSDATEN*.csv
 EMAILS-ZUGANGSDATEN.md
 mail-entwuerfe.js
+
+# Importdateien mit Kundenabrufen sind Arbeitsdateien, kein Code
+Abrufe-*.xlsx
