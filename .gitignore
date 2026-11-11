@@ -17,3 +17,6 @@ mail-entwuerfe.js
 
 # Importdateien mit Kundenabrufen sind Arbeitsdateien, kein Code
 Abrufe-*.xlsx
+
+# Sperrdateien, die Excel beim Oeffnen anlegt
+~$*
