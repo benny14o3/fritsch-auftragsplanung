@@ -4263,6 +4263,11 @@ function renderBoard(dbType) {
                     addCardAction(card, '📅 Trotzdem einplanen', () => setManuellEingeplant(order._id, true));
                 }
             }
+            // Maschine zugewiesen, gehört in den Zeitplan, hat aber keinen Termin -
+            // ohne diesen Knopf gäbe es keinen Weg, ihm einen zu geben.
+            if (order.maschineId && istImZeitplan(order) && (!order.startDatum || !order.endDatum)) {
+                addCardAction(card, '📅 In Zeitplan einplanen', () => planeOhneTerminEin(order._id), 'primary');
+            }
             // Teilmenge auf ein weiteres Zeitfenster/eine weitere Maschine aufteilen -
             // bleibt derselbe Auftrag (eine FSK/Erstfreigabe), nur mit mehreren
             // Zeitplan-Abschnitten. Braucht eine bereits zugeordnete Hauptmaschine.
@@ -5358,7 +5363,20 @@ async function moveOrder(orderId, maschineId, position) {
     order.maschineId = maschineId;
     order.position = position;
     order.status = maschineId ? 'geplant' : 'ausstehend';
-    renderBoard(order.dbType);
+    const patchBody = { maschineId, position, status: order.status };
+
+    // Kommt der Auftrag ohne Termin auf eine Maschine (z.B. aus "Nicht
+    // zugewiesen") und gehört in den Zeitplan, bekommt er gleich den nächsten
+    // freien Platz - sonst stünde er auf der Maschine, aber ohne Balken.
+    if (maschineId && istImZeitplan(order) && (!order.startDatum || !order.endDatum)) {
+        const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
+        const { startDatum, endDatum } = findePlanungsZeitraum(order, [maschineId, order.maschineId2], tage, { orderId: order._id });
+        order.startDatum = startDatum;
+        order.endDatum = endDatum;
+        patchBody.startDatum = startDatum;
+        patchBody.endDatum = endDatum;
+    }
+    renderAll();
 
     try {
         await fetch(`${API_URL}/orders/${orderId}`, {
@@ -5367,7 +5385,7 @@ async function moveOrder(orderId, maschineId, position) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({ maschineId, position, status: order.status }),
+            body: JSON.stringify(patchBody),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
@@ -5431,7 +5449,11 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
     // an der zu seinem Liefertermin passenden Stelle auf seiner Maschine
     // einsortieren - der bisherige Termin wurde oft schon lange vorher vergeben,
     // ohne Rücksicht darauf, wann die Komponenten wirklich verfügbar sind.
-    if (!warBereitVorher && istBereitJetzt && order.maschineId && !order.manuellEingeplant) {
+    // Ein manuell eingeplanter Auftrag behält seinen Termin - es sei denn, er hat
+    // gar keinen (z.B. nach dem Hin- und Herschieben zwischen den Bereichen),
+    // dann stünde er sonst für immer ohne Balken auf seiner Maschine.
+    const ohneTermin = !order.startDatum || !order.endDatum;
+    if (!warBereitVorher && istBereitJetzt && order.maschineId && (!order.manuellEingeplant || ohneTermin)) {
         const maschinen = [order.maschineId, order.maschineId2];
         const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
         const { startDatum, endDatum } = findePlanungsZeitraum(order, maschinen, tage, { orderId: order._id });
@@ -5453,6 +5475,29 @@ async function setKomponenteDatum(orderId, idx, dateStr) {
                 'Authorization': `Bearer ${token}`,
             },
             body: JSON.stringify(patchBody),
+        });
+    } catch (err) {
+        // Bei Fehler synct der nächste Poll den echten Stand
+    }
+}
+
+// Einem Auftrag, der eine Maschine, aber keinen Termin hat, den nächsten
+// freien Platz auf dieser Maschine geben.
+async function planeOhneTerminEin(orderId) {
+    const order = boardOrders.find(o => o._id === orderId);
+    if (!order || !order.maschineId) return;
+    const maschinen = [order.maschineId, order.maschineId2];
+    const tage = Math.max(1, order.schichten || berechneBearbeitungszeit(order, order.menge).tage);
+    const { startDatum, endDatum } = findePlanungsZeitraum(order, maschinen, tage, { orderId: order._id });
+    order.startDatum = startDatum;
+    order.endDatum = endDatum;
+    order.status = 'geplant';
+    renderAll();
+    try {
+        await fetch(`${API_URL}/orders/${orderId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ startDatum, endDatum, status: 'geplant' }),
         });
     } catch (err) {
         // Bei Fehler synct der nächste Poll den echten Stand
